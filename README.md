@@ -6,17 +6,16 @@
 
 | 层 | 技术 |
 |---|---|
-| 后端 | Python 3.12, FastAPI, SQLAlchemy, jieba |
+| 后端 | Python 3.12, FastAPI, jieba |
 | 前端 | TypeScript, React 18, Vite, Tailwind CSS, Zustand |
-| 数据库 | SQLite |
+| 存储 | JSON 文件 |
 | 包管理 | uv (Python), npm (Node.js) |
 
 ## 项目结构
 
 ```
 ├── main.py                  # FastAPI 应用入口
-├── models.py                # SQLAlchemy 数据模型
-├── database.py              # 数据库连接配置
+├── storage.py               # 文件存储层（JSON）
 ├── services/tokenizer.py    # jieba 分词服务
 ├── routers/documents.py     # API 路由
 ├── frontend/
@@ -57,9 +56,11 @@ cd frontend && npm run dev
 - **分词修正**：
   - 拆分模式：点击分词，在弹窗中选择拆分位置将一个词拆为两个
   - 合并模式：依次点击两个相邻分词将其合并
-- **修改保存**：分词和指代修改通过 API 持久化到 SQLite
+- **修改保存**：分词和指代修改通过 API 持久化到 JSON 文件
 
 ## 数据模型
+
+数据以 JSON 文件存储在 `data/documents/<id>.json`，每个文件包含文档元数据及所有 Token。
 
 ### Token
 

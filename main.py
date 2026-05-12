@@ -1,8 +1,17 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from routers.documents import router as documents_router
+import storage
 
-app = FastAPI(title="IntensiveReading")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    storage.init()
+    yield
+
+
+app = FastAPI(title="IntensiveReading", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

@@ -1,1 +1,9 @@
 @import "tailwindcss";
+
+.s-default { @apply border-b-2 border-b-gray-300; }
+.s-keyword { @apply border-b-2 border-b-blue-400 bg-blue-50/50; }
+.s-entity { @apply border-b-2 border-b-purple-400 bg-purple-50/50; }
+.s-unknown { @apply border-b-2 border-b-red-400 bg-red-50/50; }
+.s-number { @apply border-b-2 border-b-amber-400 bg-amber-50/30; }
+.s-punctuation { @apply text-gray-400; }
+.s-connector { @apply text-gray-400; }

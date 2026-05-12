@@ -4,10 +4,11 @@ import { useReaderStore } from '../store'
 import { fetchDocument } from '../api'
 import Toolbar from './Toolbar'
 import TextCanvas from './TextCanvas'
+import TokenActionPanel from './TokenActionPanel'
 
 export default function ReaderPage() {
   const { id } = useParams<{ id: string }>()
-  const { document, tokens, loading, error, setDocument, setLoading, setError } =
+  const { document, tokens, loading, error, selectedTokenId, setDocument, setLoading, setError } =
     useReaderStore()
 
   useEffect(() => {
@@ -39,9 +40,18 @@ export default function ReaderPage() {
   if (!document) return null
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <Toolbar />
-      <TextCanvas tokens={tokens} />
+    <div className="h-screen flex overflow-hidden bg-gray-50">
+      <div className="flex-1 flex flex-col overflow-hidden transition-all duration-300">
+        <Toolbar />
+        <div className="flex-1 overflow-y-auto">
+          <TextCanvas tokens={tokens} />
+        </div>
+      </div>
+      {selectedTokenId && (
+        <div className="w-80 shrink-0 bg-white border-l shadow-lg overflow-hidden flex flex-col transition-all duration-300">
+          <TokenActionPanel />
+        </div>
+      )}
     </div>
   )
 }

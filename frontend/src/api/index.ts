@@ -51,3 +51,13 @@ export async function updateToken(
     body: JSON.stringify(data),
   })
 }
+
+export async function splitTokenByMeaning(
+  tokenId: string,
+  offsetsToMove: number[]
+): Promise<Document> {
+  return request(`/tokens/${tokenId}/split`, {
+    method: 'POST',
+    body: JSON.stringify({ offsets_to_move: offsetsToMove }),
+  })
+}
