@@ -1,33 +1,40 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import type { Relation, RelationMember, RelationObject, Token } from '../types'
 import { STYLE_TYPES, STYLE_LABELS, RELATION_TYPES, RELATION_LABELS } from '../types'
 import { useReaderStore } from '../store'
-import { saveDocument, splitTokenByMeaning } from '../api'
+import { saveDocument, splitTokenByMeaning, explainObject } from '../api'
 
 type OpTab = 'meaning' | 'char' | 'merge'
 
 export default function TokenActionPanel() {
+  const viewMode = useReaderStore((s) => s.viewMode)
   const selectedTokenId = useReaderStore((s) => s.selectedTokenId)
+  const layerSelectedTokenId = useReaderStore((s) => s.layerSelectedTokenId)
   const tokens = useReaderStore((s) => s.tokens)
-  const token = tokens.find((t) => t.id === selectedTokenId)
+
+  const effectiveTokenId = layerSelectedTokenId || selectedTokenId
+  const token = effectiveTokenId
+    ? tokens.find((t) => t.id === effectiveTokenId)
+    : undefined
 
   if (!token) {
     return <RelationOverview />
   }
 
-  return <TokenDetail token={token} />
+  return <TokenDetail token={token} isLayerView={viewMode === 'layer'} />
 }
 
-// ── TokenDetail ──
-
-function TokenDetail({ token }: { token: Token }) {
+function TokenDetail({ token, isLayerView }: { token: Token; isLayerView: boolean }) {
   const tokens = useReaderStore((s) => s.tokens)
   const relationObjects = useReaderStore((s) => s.relation_objects)
   const relations = useReaderStore((s) => s.relations)
   const document = useReaderStore((s) => s.document)
   const saving = useReaderStore((s) => s.saving)
+  const explaining = useReaderStore((s) => s.explaining)
   const setSelectedToken = useReaderStore((s) => s.setSelectedToken)
+  const setLayerSelectedToken = useReaderStore((s) => s.setLayerSelectedToken)
   const setSaving = useReaderStore((s) => s.setSaving)
+  const setExplaining = useReaderStore((s) => s.setExplaining)
   const updateToken = useReaderStore((s) => s.updateToken)
   const addRelationObject = useReaderStore((s) => s.addRelationObject)
   const deleteRelationObject = useReaderStore((s) => s.deleteRelationObject)
@@ -36,6 +43,7 @@ function TokenDetail({ token }: { token: Token }) {
   const deleteRelation = useReaderStore((s) => s.deleteRelation)
   const splitTokenAll = useReaderStore((s) => s.splitTokenAll)
   const mergeAdjacentAll = useReaderStore((s) => s.mergeAdjacentAll)
+  const setDocument = useReaderStore((s) => s.setDocument)
 
   const tokenRelationObject = relationObjects.find((ro) => ro.token_id === token.id)
 
@@ -49,17 +57,14 @@ function TokenDetail({ token }: { token: Token }) {
 
   const [styleType, setStyleType] = useState(token.style_type)
 
-  // Relation editing state
   const [editingRelId, setEditingRelId] = useState<string | null>(null)
   const [editType, setEditType] = useState<string>('')
   const [editCustomType, setEditCustomType] = useState('')
   const [editMembers, setEditMembers] = useState<RelationMember[]>([])
 
-  // Text object creation state
   const [showTextObj, setShowTextObj] = useState(false)
   const [textObjValue, setTextObjValue] = useState('')
 
-  // Operations state
   const [opTab, setOpTab] = useState<OpTab>('meaning')
   const [checkedOffsets, setCheckedOffsets] = useState<Set<number>>(new Set())
   const [charSplitPos, setCharSplitPos] = useState<number | null>(null)
@@ -73,22 +78,14 @@ function TokenDetail({ token }: { token: Token }) {
           if (so + t.text.length === off) {
             const key = `prev:${t.text}`
             const g = groups.get(key)
-            if (g) {
-              g.ids.add(t.id)
-              g.count++
-            } else {
-              groups.set(key, { text: t.text, direction: 'prev', ids: new Set([t.id]), count: 1 })
-            }
+            if (g) { g.ids.add(t.id); g.count++ }
+            else { groups.set(key, { text: t.text, direction: 'prev', ids: new Set([t.id]), count: 1 }) }
           }
           if (so === off + token.text.length) {
             const key = `next:${t.text}`
             const g = groups.get(key)
-            if (g) {
-              g.ids.add(t.id)
-              g.count++
-            } else {
-              groups.set(key, { text: t.text, direction: 'next', ids: new Set([t.id]), count: 1 })
-            }
+            if (g) { g.ids.add(t.id); g.count++ }
+            else { groups.set(key, { text: t.text, direction: 'next', ids: new Set([t.id]), count: 1 }) }
           }
         }
       }
@@ -98,28 +95,19 @@ function TokenDetail({ token }: { token: Token }) {
 
   const handleConvertToken = () => {
     if (tokenRelationObject) return
-    addRelationObject({
-      id: crypto.randomUUID(),
-      token_id: token.id,
-    })
+    addRelationObject({ id: crypto.randomUUID(), token_id: token.id })
   }
 
   const handleDeleteTokenObject = () => {
     if (!tokenRelationObject) return
     const refCount = relations.filter((r) => r.members.some((m) => m.id === tokenRelationObject.id)).length
-    if (refCount > 0) {
-      alert(`该对象被 ${refCount} 个关系引用，无法删除`)
-      return
-    }
+    if (refCount > 0) { alert(`该对象被 ${refCount} 个关系引用，无法删除`); return }
     deleteRelationObject(tokenRelationObject.id)
   }
 
   const handleAddTextObject = () => {
     if (!textObjValue.trim()) return
-    addRelationObject({
-      id: crypto.randomUUID(),
-      text: textObjValue.trim(),
-    })
+    addRelationObject({ id: crypto.randomUUID(), text: textObjValue.trim() })
     setTextObjValue('')
     setShowTextObj(false)
   }
@@ -159,15 +147,10 @@ function TokenDetail({ token }: { token: Token }) {
     if (editMembers.length < 2) return
 
     if (editingRelId === 'new') {
-      addRelation({
-        id: crypto.randomUUID(),
-        type,
-        members: editMembers,
-      })
+      addRelation({ id: crypto.randomUUID(), type, members: editMembers })
     } else if (editingRelId) {
       updateRelation(editingRelId, { type, members: editMembers })
     }
-
     setEditingRelId(null)
   }
 
@@ -219,14 +202,18 @@ function TokenDetail({ token }: { token: Token }) {
     mergeAdjacentAll(token.id, ids)
   }
 
-  const toggleOffset = (off: number) => {
-    setCheckedOffsets((prev) => {
-      const next = new Set(prev)
-      if (next.has(off)) next.delete(off)
-      else next.add(off)
-      return next
-    })
-  }
+  const handleAIExplain = useCallback(async () => {
+    if (!document || !tokenRelationObject) return
+    setExplaining(true)
+    try {
+      const updated = await explainObject(document.id, tokenRelationObject.id)
+      setDocument(updated)
+    } catch (e) {
+      alert(`AI解释失败：${e instanceof Error ? e.message : e}`)
+    } finally {
+      setExplaining(false)
+    }
+  }, [document, tokenRelationObject, setExplaining, setDocument])
 
   const resolveObjectDisplay = (obj: RelationObject): string => {
     if (obj.token_id) {
@@ -274,36 +261,34 @@ function TokenDetail({ token }: { token: Token }) {
 
   const isPredefined = (t: string) => (RELATION_TYPES as readonly string[]).includes(t)
 
-  const TAB_LABELS: Record<OpTab, string> = {
-    meaning: '拆分含义',
-    char: '分词拆分',
-    merge: '合并相邻',
+  const TAB_LABELS: Record<OpTab, string> = { meaning: '拆分含义', char: '分词拆分', merge: '合并相邻' }
+
+  const closePanel = () => {
+    if (isLayerView) setLayerSelectedToken(null)
+    else setSelectedToken(null)
   }
 
   return (
     <div className="flex flex-col h-full">
-      {/* Header */}
       <div className="flex items-center justify-between p-4 border-b shrink-0">
         <div className="font-medium text-lg truncate flex-1">
+          {isLayerView && <span className="text-xs text-gray-400 mr-1">摘要</span>}
           <span className="text-gray-400">「</span>
           {token.text}
           <span className="text-gray-400">」</span>
         </div>
         <button
-          onClick={() => setSelectedToken(null)}
+          onClick={closePanel}
           className="text-gray-400 hover:text-gray-600 text-xl leading-none ml-2 shrink-0"
         >
           ×
         </button>
       </div>
 
-      {/* Content */}
       <div className="flex-1 overflow-y-auto p-4 space-y-5">
-        {/* ── Style type ── */}
+        {/* Style type */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            样式类型
-          </label>
+          <label className="block text-sm font-medium text-gray-700 mb-1">样式类型</label>
           <select
             value={styleType}
             onChange={(e) => {
@@ -313,14 +298,25 @@ function TokenDetail({ token }: { token: Token }) {
             className="w-full border rounded px-3 py-2 text-sm"
           >
             {STYLE_TYPES.map((t) => (
-              <option key={t} value={t}>
-                {STYLE_LABELS[t]}
-              </option>
+              <option key={t} value={t}>{STYLE_LABELS[t]}</option>
             ))}
           </select>
         </div>
 
-        {/* ── Relation Objects ── */}
+        {/* AI Explain button */}
+        {tokenRelationObject && (
+          <div>
+            <button
+              onClick={handleAIExplain}
+              disabled={explaining}
+              className="w-full px-3 py-2 text-xs bg-purple-600 text-white rounded hover:bg-purple-700 disabled:opacity-50"
+            >
+              {explaining ? 'AI解释中...' : '🤖 AI 解释'}
+            </button>
+          </div>
+        )}
+
+        {/* Relation Objects */}
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium text-gray-700">关系对象</span>
@@ -339,24 +335,11 @@ function TokenDetail({ token }: { token: Token }) {
                 onChange={(e) => setTextObjValue(e.target.value)}
                 className="w-full border rounded px-2 py-1 text-xs"
                 placeholder="输入文本…"
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleAddTextObject()
-                }}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleAddTextObject() }}
               />
               <div className="flex gap-2">
-                <button
-                  onClick={() => setShowTextObj(false)}
-                  className="flex-1 px-2 py-1 text-xs border rounded hover:bg-gray-100"
-                >
-                  取消
-                </button>
-                <button
-                  onClick={handleAddTextObject}
-                  disabled={!textObjValue.trim()}
-                  className="flex-1 px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
-                >
-                  添加
-                </button>
+                <button onClick={() => setShowTextObj(false)} className="flex-1 px-2 py-1 text-xs border rounded hover:bg-gray-100">取消</button>
+                <button onClick={handleAddTextObject} disabled={!textObjValue.trim()} className="flex-1 px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50">添加</button>
               </div>
             </div>
           )}
@@ -367,18 +350,10 @@ function TokenDetail({ token }: { token: Token }) {
                 <span className="text-gray-400">分词 </span>
                 「{token.text}」
               </span>
-              <button
-                onClick={handleDeleteTokenObject}
-                className="text-gray-400 hover:text-red-500 shrink-0"
-              >
-                ✕
-              </button>
+              <button onClick={handleDeleteTokenObject} className="text-gray-400 hover:text-red-500 shrink-0">✕</button>
             </div>
           ) : (
-            <button
-              onClick={handleConvertToken}
-              className="w-full px-3 py-2 text-xs border rounded bg-blue-50 text-blue-700 hover:bg-blue-100"
-            >
+            <button onClick={handleConvertToken} className="w-full px-3 py-2 text-xs border rounded bg-blue-50 text-blue-700 hover:bg-blue-100">
               将「{token.text}」转为关系对象
             </button>
           )}
@@ -388,26 +363,18 @@ function TokenDetail({ token }: { token: Token }) {
             .map((ro) => {
               const refCount = relations.filter((r) => r.members.some((m) => m.id === ro.id)).length
               return (
-                <div
-                  key={ro.id}
-                  className="border rounded p-2 text-xs flex items-center justify-between gap-2"
-                >
+                <div key={ro.id} className="border rounded p-2 text-xs flex items-center justify-between gap-2">
                   <span className="text-gray-500 truncate">
                     <span className="text-gray-400">文本 </span>
                     {resolveObjectDisplay(ro)}
                   </span>
                   <button
                     onClick={() => {
-                      if (refCount > 0) {
-                        alert(`该对象被 ${refCount} 个关系引用，无法删除`)
-                        return
-                      }
+                      if (refCount > 0) { alert(`该对象被 ${refCount} 个关系引用，无法删除`); return }
                       deleteRelationObject(ro.id)
                     }}
                     className="text-gray-400 hover:text-red-500 shrink-0"
-                  >
-                    ✕
-                  </button>
+                  >✕</button>
                 </div>
               )
             })}
@@ -415,7 +382,7 @@ function TokenDetail({ token }: { token: Token }) {
 
         <div className="border-t" />
 
-        {/* ── Relations ── */}
+        {/* Relations */}
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium text-gray-700">关系</span>
@@ -429,10 +396,7 @@ function TokenDetail({ token }: { token: Token }) {
           </div>
 
           {tokenRelations.map((rel) => (
-            <div
-              key={rel.id}
-              className={`border rounded p-2 text-xs ${editingRelId === rel.id ? 'ring-2 ring-blue-300' : ''}`}
-            >
+            <div key={rel.id} className={`border rounded p-2 text-xs ${editingRelId === rel.id ? 'ring-2 ring-blue-300' : ''}`}>
               {editingRelId === rel.id ? null : (
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-1.5 truncate flex-1 min-w-0">
@@ -441,33 +405,16 @@ function TokenDetail({ token }: { token: Token }) {
                     </span>
                     <span className="text-gray-400 shrink-0">:</span>
                     <span className="text-gray-500 truncate">
-                      {rel.members.map((m, i) =>
-                        (i > 0 ? ' → ' : '') + resolveMemberDisplay(m)
-                      )}
+                      {rel.members.map((m, i) => (i > 0 ? ' → ' : '') + resolveMemberDisplay(m))}
                     </span>
                   </div>
                   <div className="flex gap-1 shrink-0">
-                    <button
-                      onClick={() => startEditing(rel)}
-                      className="text-gray-400 hover:text-gray-600"
-                    >
-                      编辑
-                    </button>
-                    <button
-                      onClick={() => {
-                        const refCount = relations.filter(
-                          (r) => r.id !== rel.id && r.members.some((m) => m.kind === 'relation' && m.id === rel.id)
-                        ).length
-                        if (refCount > 0) {
-                          alert(`该关系被 ${refCount} 个关系引用，无法删除`)
-                          return
-                        }
-                        deleteRelation(rel.id)
-                      }}
-                      className="text-red-400 hover:text-red-600"
-                    >
-                      删除
-                    </button>
+                    <button onClick={() => startEditing(rel)} className="text-gray-400 hover:text-gray-600">编辑</button>
+                    <button onClick={() => {
+                      const refCount = relations.filter((r) => r.id !== rel.id && r.members.some((m) => m.kind === 'relation' && m.id === rel.id)).length
+                      if (refCount > 0) { alert(`该关系被 ${refCount} 个关系引用，无法删除`); return }
+                      deleteRelation(rel.id)
+                    }} className="text-red-400 hover:text-red-600">删除</button>
                   </div>
                 </div>
               )}
@@ -489,19 +436,14 @@ function TokenDetail({ token }: { token: Token }) {
                 >
                   <option value="">选择类型…</option>
                   {RELATION_TYPES.map((t) => (
-                    <option key={t} value={t}>
-                      {RELATION_LABELS[t]}
-                    </option>
+                    <option key={t} value={t}>{RELATION_LABELS[t]}</option>
                   ))}
                   <option value="__custom__">自定义…</option>
                 </select>
                 {(!editType || editType === '__custom__') && (
                   <input
                     value={editCustomType}
-                    onChange={(e) => {
-                      setEditCustomType(e.target.value)
-                      setEditType('__custom__')
-                    }}
+                    onChange={(e) => { setEditCustomType(e.target.value); setEditType('__custom__') }}
                     placeholder="输入自定义类型"
                     className="w-full border rounded px-2 py-1.5 text-xs mt-1"
                   />
@@ -509,67 +451,33 @@ function TokenDetail({ token }: { token: Token }) {
               </div>
 
               <div>
-                <label className="block text-xs text-gray-500 mb-1">
-                  选择对象（已选 {editMembers.length}）
-                </label>
+                <label className="block text-xs text-gray-500 mb-1">选择对象（已选 {editMembers.length}）</label>
                 <div className="max-h-48 overflow-y-auto border rounded bg-white divide-y">
                   {relationObjects.map((ro) => (
-                    <label
-                      key={`obj:${ro.id}`}
-                      className="flex items-center gap-2 px-2 py-1.5 text-xs hover:bg-gray-50 cursor-pointer"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={isMemberSelected('object', ro.id)}
-                        onChange={() => toggleMemberSelection('object', ro.id)}
-                      />
-                      <span className="text-gray-400 shrink-0">
-                        {ro.token_id ? '分词' : '文本'}
-                      </span>
-                      <span className="text-gray-700 truncate">
-                        {resolveObjectDisplay(ro)}
-                      </span>
+                    <label key={`obj:${ro.id}`} className="flex items-center gap-2 px-2 py-1.5 text-xs hover:bg-gray-50 cursor-pointer">
+                      <input type="checkbox" checked={isMemberSelected('object', ro.id)} onChange={() => toggleMemberSelection('object', ro.id)} />
+                      <span className="text-gray-400 shrink-0">{ro.token_id ? '分词' : '文本'}</span>
+                      <span className="text-gray-700 truncate">{resolveObjectDisplay(ro)}</span>
                     </label>
                   ))}
-                  {relations
-                    .filter((r) => r.id !== editingRelId)
-                    .map((rel) => (
-                      <label
-                        key={`rel:${rel.id}`}
-                        className="flex items-center gap-2 px-2 py-1.5 text-xs hover:bg-gray-50 cursor-pointer"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={isMemberSelected('relation', rel.id)}
-                          onChange={() => toggleMemberSelection('relation', rel.id)}
-                        />
-                        <span className="text-gray-400 shrink-0">关系</span>
-                        <span className="text-gray-700 truncate">
-                          {resolveRelationDisplay(rel)}
-                        </span>
-                      </label>
-                    ))}
+                  {relations.filter((r) => r.id !== editingRelId).map((rel) => (
+                    <label key={`rel:${rel.id}`} className="flex items-center gap-2 px-2 py-1.5 text-xs hover:bg-gray-50 cursor-pointer">
+                      <input type="checkbox" checked={isMemberSelected('relation', rel.id)} onChange={() => toggleMemberSelection('relation', rel.id)} />
+                      <span className="text-gray-400 shrink-0">关系</span>
+                      <span className="text-gray-700 truncate">{resolveRelationDisplay(rel)}</span>
+                    </label>
+                  ))}
                   {relationObjects.length === 0 && relations.length === 0 && (
-                    <div className="px-2 py-3 text-xs text-gray-400 text-center">
-                      暂无关系对象或关系，请先创建
-                    </div>
+                    <div className="px-2 py-3 text-xs text-gray-400 text-center">暂无关系对象或关系，请先创建</div>
                   )}
                 </div>
               </div>
 
               <div className="flex gap-2">
-                <button
-                  onClick={cancelEditing}
-                  className="flex-1 px-3 py-1.5 text-xs border rounded hover:bg-gray-100"
-                >
-                  取消
-                </button>
+                <button onClick={cancelEditing} className="flex-1 px-3 py-1.5 text-xs border rounded hover:bg-gray-100">取消</button>
                 <button
                   onClick={commitEditing}
-                  disabled={
-                    !(isPredefined(editType) ? editType : editCustomType.trim()) ||
-                    editMembers.length < 2
-                  }
+                  disabled={!(isPredefined(editType) ? editType : editCustomType.trim()) || editMembers.length < 2}
                   className="flex-1 px-3 py-1.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
                 >
                   {editingRelId === 'new' ? '添加' : '保存'}
@@ -581,21 +489,15 @@ function TokenDetail({ token }: { token: Token }) {
 
         <div className="border-t" />
 
-        {/* ── Operations ── */}
-        <div className="text-xs font-medium text-gray-400 uppercase tracking-wide">
-          操作
-        </div>
+        {/* Operations */}
+        <div className="text-xs font-medium text-gray-400 uppercase tracking-wide">操作</div>
 
         <div className="flex border rounded overflow-hidden">
           {(Object.keys(TAB_LABELS) as OpTab[]).map((tab) => (
             <button
               key={tab}
               onClick={() => setOpTab(tab)}
-              className={`flex-1 px-2 py-1.5 text-xs transition-colors
-                ${opTab === tab
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-white text-gray-600 hover:bg-gray-100'
-                }`}
+              className={`flex-1 px-2 py-1.5 text-xs transition-colors ${opTab === tab ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'}`}
             >
               {TAB_LABELS[tab]}
             </button>
@@ -608,29 +510,17 @@ function TokenDetail({ token }: { token: Token }) {
               <div className="text-xs text-gray-400">该分词仅出现一次，无需拆分</div>
             ) : (
               <div>
-                <p className="text-xs text-gray-600 mb-2">
-                  勾选要移走的出现位置（{token.start_offsets.length} 处）：
-                </p>
+                <p className="text-xs text-gray-600 mb-2">勾选要移走的出现位置（{token.start_offsets.length} 处）：</p>
                 <div className="space-y-1 max-h-40 overflow-y-auto">
                   {token.start_offsets.map((off) => {
                     const ctxStart = Math.max(0, off - 8)
-                    const ctxEnd = Math.min(
-                      document?.original_text.length || 0,
-                      off + token.text.length + 8
-                    )
+                    const ctxEnd = Math.min(document?.original_text.length || 0, off + token.text.length + 8)
                     const ctx = document?.original_text.slice(ctxStart, ctxEnd) || ''
                     const innerStart = off - ctxStart
                     const innerEnd = innerStart + token.text.length
                     return (
-                      <label
-                        key={off}
-                        className="flex items-center gap-2 text-xs cursor-pointer hover:bg-orange-100 px-1 py-0.5 rounded"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={checkedOffsets.has(off)}
-                          onChange={() => toggleOffset(off)}
-                        />
+                      <label key={off} className="flex items-center gap-2 text-xs cursor-pointer hover:bg-orange-100 px-1 py-0.5 rounded">
+                        <input type="checkbox" checked={checkedOffsets.has(off)} onChange={() => toggleOffset(off)} />
                         <span className="text-gray-400 w-10 shrink-0">#{off}</span>
                         <span className="truncate">
                           {ctx.slice(0, innerStart)}
@@ -642,22 +532,8 @@ function TokenDetail({ token }: { token: Token }) {
                   })}
                 </div>
                 <div className="flex gap-2 mt-3">
-                  <button
-                    onClick={() => setCheckedOffsets(new Set())}
-                    className="px-3 py-1 text-xs border rounded hover:bg-gray-50"
-                  >
-                    取消
-                  </button>
-                  <button
-                    onClick={handleSplitMeaning}
-                    disabled={
-                      checkedOffsets.size === 0 ||
-                      checkedOffsets.size >= token.start_offsets.length
-                    }
-                    className="px-3 py-1 text-xs bg-orange-600 text-white rounded hover:bg-orange-700 disabled:opacity-50"
-                  >
-                    确认拆分
-                  </button>
+                  <button onClick={() => setCheckedOffsets(new Set())} className="px-3 py-1 text-xs border rounded hover:bg-gray-50">取消</button>
+                  <button onClick={handleSplitMeaning} disabled={checkedOffsets.size === 0 || checkedOffsets.size >= token.start_offsets.length} className="px-3 py-1 text-xs bg-orange-600 text-white rounded hover:bg-orange-700 disabled:opacity-50">确认拆分</button>
                 </div>
               </div>
             )}
@@ -670,26 +546,13 @@ function TokenDetail({ token }: { token: Token }) {
               {chars.map((ch, i) => (
                 <span key={i}>
                   {i > 0 && (
-                    <button
-                      onClick={() => setCharSplitPos(i)}
-                      className={`inline-block w-1.5 h-6 mx-0.5 rounded-sm transition-colors cursor-pointer
-                        ${charSplitPos === i
-                          ? 'bg-blue-500'
-                          : 'bg-gray-300 hover:bg-blue-300'
-                        }`}
-                    />
+                    <button onClick={() => setCharSplitPos(i)} className={`inline-block w-1.5 h-6 mx-0.5 rounded-sm transition-colors cursor-pointer ${charSplitPos === i ? 'bg-blue-500' : 'bg-gray-300 hover:bg-blue-300'}`} />
                   )}
                   <span className="inline-block px-0.5">{ch}</span>
                 </span>
               ))}
             </div>
-            <button
-              onClick={handleCharSplit}
-              disabled={charSplitPos === null}
-              className="w-full px-3 py-1.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
-            >
-              确认拆分
-            </button>
+            <button onClick={handleCharSplit} disabled={charSplitPos === null} className="w-full px-3 py-1.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50">确认拆分</button>
           </div>
         )}
 
@@ -699,21 +562,13 @@ function TokenDetail({ token }: { token: Token }) {
               <div className="text-xs text-gray-400">无可合并的相邻分词</div>
             ) : (
               adjacentGroups.map((g) => (
-                <div
-                  key={`${g.direction}:${g.text}`}
-                  className="flex items-center justify-between gap-2 p-2 border rounded text-xs"
-                >
+                <div key={`${g.direction}:${g.text}`} className="flex items-center justify-between gap-2 p-2 border rounded text-xs">
                   <span className="text-gray-500 truncate">
                     {g.direction === 'prev' ? '← 合并「' : '合并→「'}
                     <span className="font-medium text-gray-700">{g.text}</span>
                     」{g.count > 1 && <span>（{g.count}处）</span>}
                   </span>
-                  <button
-                    onClick={() => handleMergeGroup([...g.ids])}
-                    className="px-2 py-0.5 bg-green-600 text-white rounded hover:bg-green-700 shrink-0"
-                  >
-                    合并
-                  </button>
+                  <button onClick={() => handleMergeGroup([...g.ids])} className="px-2 py-0.5 bg-green-600 text-white rounded hover:bg-green-700 shrink-0">合并</button>
                 </div>
               ))
             )}
@@ -723,37 +578,36 @@ function TokenDetail({ token }: { token: Token }) {
 
       {/* Footer */}
       <div className="flex gap-3 p-4 border-t shrink-0">
-        <button
-          onClick={() => setSelectedToken(null)}
-          className="flex-1 px-4 py-2 text-sm border rounded hover:bg-gray-50"
-        >
-          关闭
-        </button>
-        <button
-          onClick={handleSave}
-          disabled={saving}
-          className="flex-1 px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
-        >
+        <button onClick={closePanel} className="flex-1 px-4 py-2 text-sm border rounded hover:bg-gray-50">关闭</button>
+        <button onClick={handleSave} disabled={saving} className="flex-1 px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50">
           {saving ? '保存中...' : '保存'}
         </button>
       </div>
     </div>
   )
-}
 
-// ── RelationOverview ──
+  function toggleOffset(off: number) {
+    setCheckedOffsets((prev) => {
+      const next = new Set(prev)
+      if (next.has(off)) next.delete(off); else next.add(off)
+      return next
+    })
+  }
+}
 
 function RelationOverview() {
   const tokens = useReaderStore((s) => s.tokens)
   const relationObjects = useReaderStore((s) => s.relation_objects)
   const relations = useReaderStore((s) => s.relations)
   const setSelectedToken = useReaderStore((s) => s.setSelectedToken)
+  const layerTokens = useReaderStore((s) => s.layerTokens)
+  const viewMode = useReaderStore((s) => s.viewMode)
 
   const isPredefined = (t: string) => (RELATION_TYPES as readonly string[]).includes(t)
 
-  const resolveObjectDisplay = (obj: RelationObject): string => {
+  const resolveObjectDisplay = (obj: RelationObject, tkns: Token[]): string => {
     if (obj.token_id) {
-      const t = tokens.find((tok) => tok.id === obj.token_id)
+      const t = tkns.find((tok) => tok.id === obj.token_id)
       return t ? `「${t.text}」` : '(已删除)'
     }
     if (obj.text) {
@@ -763,12 +617,12 @@ function RelationOverview() {
     return obj.id.slice(0, 8)
   }
 
-  const resolveMemberDisplay = (m: RelationMember): string => {
+  const resolveMemberDisplay = (m: RelationMember, ros: RelationObject[], rels: Relation[], tkns: Token[]): string => {
     if (m.kind === 'object') {
-      const obj = relationObjects.find((ro) => ro.id === m.id)
-      return obj ? resolveObjectDisplay(obj) : '?'
+      const obj = ros.find((ro) => ro.id === m.id)
+      return obj ? resolveObjectDisplay(obj, tkns) : '?'
     }
-    const rel = relations.find((r) => r.id === m.id)
+    const rel = rels.find((r) => r.id === m.id)
     if (rel) {
       const tl = isPredefined(rel.type) ? RELATION_LABELS[rel.type] || rel.type : rel.type
       return `[${tl}]`
@@ -791,26 +645,19 @@ function RelationOverview() {
         ) : (
           <div className="space-y-2">
             {relations.map((rel) => (
-              <div
-                key={rel.id}
-                className="border rounded p-2.5 text-xs hover:bg-gray-50 transition-colors"
-              >
+              <div key={rel.id} className="border rounded p-2.5 text-xs hover:bg-gray-50 transition-colors">
                 <div className="flex items-center gap-1.5 mb-1">
                   <span className="bg-gray-100 px-1.5 py-0.5 rounded text-gray-700 font-medium">
                     {isPredefined(rel.type) ? RELATION_LABELS[rel.type] || rel.type : rel.type}
                   </span>
-                  <span className="text-gray-400">
-                    ({rel.members.length} 个对象)
-                  </span>
+                  <span className="text-gray-400">({rel.members.length} 个对象)</span>
                 </div>
                 <div className="text-gray-500 space-x-1">
                   {rel.members.map((m, i) => (
                     <span key={i}>
                       {i > 0 && <span className="text-gray-300 mx-0.5">→</span>}
                       <span
-                        className={`cursor-pointer hover:text-blue-600 ${
-                          m.kind === 'relation' ? 'text-purple-600' : ''
-                        }`}
+                        className={`cursor-pointer hover:text-blue-600 ${m.kind === 'relation' ? 'text-purple-600' : ''}`}
                         onClick={() => {
                           if (m.kind === 'object') {
                             const obj = relationObjects.find((ro) => ro.id === m.id)
@@ -818,7 +665,7 @@ function RelationOverview() {
                           }
                         }}
                       >
-                        {resolveMemberDisplay(m)}
+                        {resolveMemberDisplay(m, relationObjects, relations, tokens)}
                       </span>
                     </span>
                   ))}

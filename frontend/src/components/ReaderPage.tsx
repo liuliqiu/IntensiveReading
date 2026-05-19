@@ -4,12 +4,19 @@ import { useReaderStore } from '../store'
 import { fetchDocument } from '../api'
 import Toolbar from './Toolbar'
 import TextCanvas from './TextCanvas'
+import SummaryCanvas from './SummaryCanvas'
 import TokenActionPanel from './TokenActionPanel'
 
 export default function ReaderPage() {
   const { id } = useParams<{ id: string }>()
-  const { document, tokens, loading, error, setDocument, setLoading, setError } =
-    useReaderStore()
+  const document = useReaderStore((s) => s.document)
+  const tokens = useReaderStore((s) => s.tokens)
+  const loading = useReaderStore((s) => s.loading)
+  const error = useReaderStore((s) => s.error)
+  const viewMode = useReaderStore((s) => s.viewMode)
+  const setDocument = useReaderStore((s) => s.setDocument)
+  const setLoading = useReaderStore((s) => s.setLoading)
+  const setError = useReaderStore((s) => s.setError)
 
   useEffect(() => {
     if (!id) return
@@ -43,9 +50,15 @@ export default function ReaderPage() {
     <div className="h-screen flex overflow-hidden bg-gray-50">
       <div className="flex-1 flex flex-col overflow-hidden transition-all duration-300">
         <Toolbar />
-        <div className="flex-1 overflow-y-auto">
-          <TextCanvas tokens={tokens} />
-        </div>
+        {viewMode === 'layer' ? (
+          <div className="flex-1 overflow-y-auto">
+            <SummaryCanvas />
+          </div>
+        ) : (
+          <div className="flex-1 overflow-y-auto">
+            <TextCanvas tokens={tokens} canvas="document" />
+          </div>
+        )}
       </div>
       <div className="w-80 shrink-0 bg-white border-l shadow-lg overflow-hidden flex flex-col transition-all duration-300">
         <TokenActionPanel />

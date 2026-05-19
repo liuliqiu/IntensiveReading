@@ -2,8 +2,9 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from storage import (
     get_document, list_documents, save_document, gen_id, utcnow,
+    get_layer, list_layers, save_layer, delete_layer,
 )
-from services.tokenizer import tokenize_and_merge
+from services.tokenizer import tokenize_and_merge, tokenize_with_vocabulary
 
 router = APIRouter(prefix="/api", tags=["documents"])
 
@@ -27,6 +28,7 @@ class RelationObjectSchema(BaseModel):
     id: str
     token_id: str | None = None
     text: str | None = None
+    kind: str | None = None
 
     class Config:
         from_attributes = True
@@ -79,6 +81,31 @@ class DocumentListItem(BaseModel):
     token_count: int
     created_at: str
     updated_at: str
+
+
+class TextLayerCreate(BaseModel):
+    type: str
+
+
+class TextLayerUpdate(BaseModel):
+    tokens: list[TokenSchema]
+
+
+class TextLayerOut(BaseModel):
+    id: str
+    document_id: str
+    type: str
+    text: str
+    tokens: list[TokenSchema]
+    created_at: str
+    updated_at: str
+
+    class Config:
+        from_attributes = True
+
+
+class ExplainRequest(BaseModel):
+    context_window: int = 200
 
 
 def _validate_tokens_cover_text(tokens: list[TokenSchema], original_text: str):
@@ -196,6 +223,179 @@ def split_token_route(token_id: str, body: TokenSplitRequest):
         )
 
     return _doc_to_out(doc)
+
+
+# ── TextLayer routes ──
+
+@router.post("/documents/{doc_id}/layers", response_model=TextLayerOut)
+def create_layer(doc_id: str, body: TextLayerCreate):
+    doc = get_document(doc_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    layer_id = gen_id()
+    now = utcnow()
+    layer = {
+        "id": layer_id,
+        "document_id": doc_id,
+        "type": body.type,
+        "text": "",
+        "tokens": [],
+        "created_at": now,
+        "updated_at": now,
+    }
+    save_layer(layer)
+    return _layer_to_out(layer)
+
+
+@router.get("/documents/{doc_id}/layers", response_model=list[TextLayerOut])
+def list_layers_route(doc_id: str):
+    doc = get_document(doc_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    layers = list_layers(doc_id)
+    return [_layer_to_out(l) for l in layers]
+
+
+@router.get("/layers/{layer_id}", response_model=TextLayerOut)
+def get_layer_route(layer_id: str):
+    layer = get_layer(layer_id)
+    if not layer:
+        raise HTTPException(status_code=404, detail="Layer not found")
+    return _layer_to_out(layer)
+
+
+@router.put("/layers/{layer_id}", response_model=TextLayerOut)
+def update_layer(layer_id: str, body: TextLayerUpdate):
+    layer = get_layer(layer_id)
+    if not layer:
+        raise HTTPException(status_code=404, detail="Layer not found")
+
+    if layer["text"]:
+        _validate_tokens_cover_text(body.tokens, layer["text"])
+
+    layer["tokens"] = [t.model_dump() for t in body.tokens]
+    layer["updated_at"] = utcnow()
+    save_layer(layer)
+
+    updated = get_layer(layer_id)
+    return _layer_to_out(updated)
+
+
+@router.delete("/layers/{layer_id}")
+def delete_layer_route(layer_id: str):
+    layer = get_layer(layer_id)
+    if not layer:
+        raise HTTPException(status_code=404, detail="Layer not found")
+    delete_layer(layer_id)
+    return {"ok": True}
+
+
+@router.post("/layers/{layer_id}/summarize", response_model=TextLayerOut)
+async def summarize_layer(layer_id: str):
+    layer = get_layer(layer_id)
+    if not layer:
+        raise HTTPException(status_code=404, detail="Layer not found")
+    if layer["type"] != "summary":
+        raise HTTPException(status_code=400, detail="Layer type must be 'summary'")
+
+    doc = get_document(layer["document_id"])
+    if not doc:
+        raise HTTPException(status_code=404, detail="Parent document not found")
+
+    from services.ai import summarize_text
+    summary, _ = await summarize_text(doc["original_text"])
+
+    layer_tokens, new_tokens = tokenize_with_vocabulary(summary, doc["tokens"])
+
+    if new_tokens:
+        doc_tokens_by_text: dict[str, dict] = {t["text"]: t for t in doc["tokens"]}
+        for nt in new_tokens:
+            if nt["text"] not in doc_tokens_by_text:
+                doc["tokens"].append(nt)
+        doc["updated_at"] = utcnow()
+        save_document(doc)
+
+    layer["text"] = summary
+    layer["tokens"] = layer_tokens
+    layer["updated_at"] = utcnow()
+    save_layer(layer)
+
+    return _layer_to_out(layer)
+
+
+@router.post("/documents/{doc_id}/objects/{object_id}/explain", response_model=DocumentOut)
+async def explain_object(doc_id: str, object_id: str, body: ExplainRequest = ExplainRequest()):
+    doc = get_document(doc_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    obj = None
+    for ro in doc.get("relation_objects", []):
+        if ro["id"] == object_id:
+            obj = ro
+            break
+    if not obj:
+        raise HTTPException(status_code=404, detail="Object not found")
+
+    term_text = ""
+    if obj.get("token_id"):
+        for t in doc["tokens"]:
+            if t["id"] == obj["token_id"]:
+                term_text = t["text"]
+                break
+    if not term_text and obj.get("text"):
+        term_text = obj["text"]
+
+    context = _get_surrounding_context(doc["original_text"], term_text, body.context_window)
+
+    from services.ai import explain_text
+    explanation = await explain_text(term_text, context)
+
+    new_obj_id = gen_id()
+    new_obj = {
+        "id": new_obj_id,
+        "token_id": None,
+        "text": explanation,
+        "kind": "ai_explanation",
+    }
+    doc.setdefault("relation_objects", []).append(new_obj)
+
+    new_rel = {
+        "id": gen_id(),
+        "type": "explains",
+        "members": [
+            {"kind": "object", "id": object_id},
+            {"kind": "object", "id": new_obj_id},
+        ],
+    }
+    doc.setdefault("relations", []).append(new_rel)
+    doc["updated_at"] = utcnow()
+    save_document(doc)
+
+    updated = get_document(doc_id)
+    return _doc_to_out(updated)
+
+
+def _get_surrounding_context(text: str, term: str, window: int) -> str:
+    idx = text.find(term)
+    if idx == -1:
+        return text[:window * 2]
+    start = max(0, idx - window)
+    end = min(len(text), idx + len(term) + window)
+    return text[start:end]
+
+
+def _layer_to_out(layer: dict) -> TextLayerOut:
+    return TextLayerOut(
+        id=layer["id"],
+        document_id=layer["document_id"],
+        type=layer["type"],
+        text=layer.get("text", ""),
+        tokens=[TokenSchema(**t) for t in layer.get("tokens", [])],
+        created_at=layer["created_at"],
+        updated_at=layer["updated_at"],
+    )
 
 
 def _doc_to_out(doc: dict) -> DocumentOut:

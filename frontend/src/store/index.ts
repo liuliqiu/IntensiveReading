@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Document, EditMode, Relation, RelationObject, Token } from '../types'
+import type { Document, EditMode, Relation, RelationObject, TextLayer, Token, ViewMode } from '../types'
 
 function mergeTokensByText(tokens: Token[], keepId: string): Token[] {
   const groups = new Map<string, Token>()
@@ -23,7 +23,6 @@ function cascadeStaleIds(
   const newROs = relationObjects.filter((ro) => !staleObjIds.has(ro.id))
   const staleIds = new Set<string>(staleObjIds)
 
-  // Transitive closure: find all relations referencing stale entities
   while (true) {
     const newStale = new Set<string>()
     for (const r of relations) {
@@ -52,6 +51,15 @@ interface ReaderState {
   saving: boolean
   error: string | null
 
+  layers: TextLayer[]
+  selectedLayerId: string | null
+  layerTokens: Token[]
+  viewMode: ViewMode
+  summarizing: boolean
+  explaining: boolean
+  layerHoveredTokenId: string | null
+  layerSelectedTokenId: string | null
+
   setDocument: (doc: Document) => void
   setTokens: (tokens: Token[]) => void
   setRelationObjects: (ros: RelationObject[]) => void
@@ -73,6 +81,16 @@ interface ReaderState {
   updateRelation: (id: string, data: Partial<Relation>) => void
   deleteRelation: (id: string) => void
   reset: () => void
+
+  setLayers: (layers: TextLayer[]) => void
+  setSelectedLayer: (id: string | null) => void
+  setLayerData: (layer: TextLayer) => void
+  setLayerTokens: (tokens: Token[]) => void
+  setViewMode: (mode: ViewMode) => void
+  setSummarizing: (v: boolean) => void
+  setExplaining: (v: boolean) => void
+  setLayerHoveredToken: (id: string | null) => void
+  setLayerSelectedToken: (id: string | null) => void
 }
 
 export const useReaderStore = create<ReaderState>((set) => ({
@@ -86,6 +104,15 @@ export const useReaderStore = create<ReaderState>((set) => ({
   loading: false,
   saving: false,
   error: null,
+
+  layers: [],
+  selectedLayerId: null,
+  layerTokens: [],
+  viewMode: 'original' as ViewMode,
+  summarizing: false,
+  explaining: false,
+  layerHoveredTokenId: null,
+  layerSelectedTokenId: null,
 
   setDocument: (doc) => set({ document: doc, tokens: [...doc.tokens], relation_objects: [...doc.relation_objects], relations: [...doc.relations] }),
 
@@ -240,9 +267,11 @@ export const useReaderStore = create<ReaderState>((set) => ({
     }),
 
   updateToken: (id, data) =>
-    set((state) => ({
-      tokens: state.tokens.map((t) => (t.id === id ? { ...t, ...data } : t)),
-    })),
+    set((state) => {
+      const newTokens = state.tokens.map((t) => (t.id === id ? { ...t, ...data } : t))
+      const newLayerTokens = state.layerTokens.map((t) => (t.id === id ? { ...t, ...data } : t))
+      return { tokens: newTokens, layerTokens: newLayerTokens }
+    }),
 
   mergeAdjacentAll: (baseId, adjIds) =>
     set((state) => {
@@ -350,7 +379,6 @@ export const useReaderStore = create<ReaderState>((set) => ({
         (r) => r.id !== id && r.members.some((m) => m.id === id)
       ).length
       if (refCount > 0) {
-        // Deletion prevented by caller; return unchanged state
         return state
       }
       return { relations: state.relations.filter((r) => r.id !== id) }
@@ -368,5 +396,24 @@ export const useReaderStore = create<ReaderState>((set) => ({
       loading: false,
       saving: false,
       error: null,
+      layers: [],
+      selectedLayerId: null,
+      layerTokens: [],
+      viewMode: 'original',
+      summarizing: false,
+      explaining: false,
+      layerHoveredTokenId: null,
+      layerSelectedTokenId: null,
     }),
+
+  setLayers: (layers) => set({ layers }),
+  setSelectedLayer: (id) => set({ selectedLayerId: id }),
+  setLayerData: (layer) => set({ layerTokens: [...layer.tokens] }),
+  setLayerTokens: (tokens) => set({ layerTokens: tokens }),
+  setViewMode: (mode) =>
+    set({ viewMode: mode, selectedTokenId: null, hoveredTokenId: null, layerSelectedTokenId: null, layerHoveredTokenId: null }),
+  setSummarizing: (v) => set({ summarizing: v }),
+  setExplaining: (v) => set({ explaining: v }),
+  setLayerHoveredToken: (id) => set({ layerHoveredTokenId: id }),
+  setLayerSelectedToken: (id) => set({ layerSelectedTokenId: id }),
 }))

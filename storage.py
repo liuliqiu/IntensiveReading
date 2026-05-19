@@ -5,12 +5,14 @@ import threading
 from datetime import datetime, timezone
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data", "documents")
+LAYERS_DIR = os.path.join(os.path.dirname(__file__), "data", "layers")
 
 _lock = threading.RLock()
 
 
 def init():
     os.makedirs(DATA_DIR, exist_ok=True)
+    os.makedirs(LAYERS_DIR, exist_ok=True)
 
 
 def gen_id() -> str:
@@ -197,6 +199,13 @@ def _migrate_objects_to_top_level(doc: dict) -> dict:
     return doc
 
 
+def _migrate_objects_add_kind(doc: dict) -> dict:
+    for ro in doc.get("relation_objects", []):
+        if "kind" not in ro:
+            ro["kind"] = "manual"
+    return doc
+
+
 def get_document(doc_id: str) -> dict | None:
     with _lock:
         doc = _read_doc(doc_id)
@@ -204,6 +213,7 @@ def get_document(doc_id: str) -> dict | None:
             doc = _migrate_refs_to_relations(doc)
             doc = _migrate_relations_to_objects(doc)
             doc = _migrate_objects_to_top_level(doc)
+            doc = _migrate_objects_add_kind(doc)
         return doc
 
 
@@ -220,6 +230,7 @@ def list_documents() -> list[dict]:
                     data = _migrate_refs_to_relations(data)
                     data = _migrate_relations_to_objects(data)
                     data = _migrate_objects_to_top_level(data)
+                    data = _migrate_objects_add_kind(data)
                     docs.append(data)
         docs.sort(key=lambda d: d.get("updated_at", ""), reverse=True)
         return docs
@@ -307,3 +318,55 @@ def find_token_doc_id(token_id: str) -> str | None:
                 if t["id"] == token_id:
                     return doc["id"]
         return None
+
+
+# ── TextLayer CRUD ──
+
+def _layer_path(layer_id: str) -> str:
+    return os.path.join(LAYERS_DIR, f"{layer_id}.json")
+
+
+def _read_layer(layer_id: str) -> dict | None:
+    path = _layer_path(layer_id)
+    if not os.path.exists(path):
+        return None
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _write_layer(data: dict):
+    path = _layer_path(data["id"])
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+def get_layer(layer_id: str) -> dict | None:
+    with _lock:
+        return _read_layer(layer_id)
+
+
+def list_layers(document_id: str) -> list[dict]:
+    with _lock:
+        layers: list[dict] = []
+        if not os.path.exists(LAYERS_DIR):
+            return layers
+        for filename in sorted(os.listdir(LAYERS_DIR)):
+            if filename.endswith(".json"):
+                lid = filename[:-5]
+                data = _read_layer(lid)
+                if data and data.get("document_id") == document_id:
+                    layers.append(data)
+        layers.sort(key=lambda d: d.get("updated_at", ""), reverse=True)
+        return layers
+
+
+def save_layer(data: dict):
+    with _lock:
+        _write_layer(data)
+
+
+def delete_layer(layer_id: str):
+    with _lock:
+        lp = _layer_path(layer_id)
+        if os.path.exists(lp):
+            os.remove(lp)

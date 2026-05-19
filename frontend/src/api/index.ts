@@ -1,4 +1,4 @@
-import type { Document, DocumentListItem, Relation, RelationObject, Token } from '../types'
+import type { Document, DocumentListItem, Relation, RelationObject, TextLayer, Token } from '../types'
 
 const BASE = '/api'
 
@@ -51,5 +51,52 @@ export async function splitTokenByMeaning(
   return request(`/tokens/${tokenId}/split`, {
     method: 'POST',
     body: JSON.stringify({ offsets_to_move: offsetsToMove }),
+  })
+}
+
+export async function createLayer(
+  documentId: string,
+  type: string
+): Promise<TextLayer> {
+  return request(`/documents/${documentId}/layers`, {
+    method: 'POST',
+    body: JSON.stringify({ type }),
+  })
+}
+
+export async function fetchLayers(documentId: string): Promise<TextLayer[]> {
+  return request(`/documents/${documentId}/layers`)
+}
+
+export async function fetchLayer(layerId: string): Promise<TextLayer> {
+  return request(`/layers/${layerId}`)
+}
+
+export async function saveLayer(
+  layerId: string,
+  tokens: Token[]
+): Promise<TextLayer> {
+  return request(`/layers/${layerId}`, {
+    method: 'PUT',
+    body: JSON.stringify({ tokens }),
+  })
+}
+
+export async function deleteLayer(layerId: string): Promise<void> {
+  return request(`/layers/${layerId}`, { method: 'DELETE' })
+}
+
+export async function summarizeLayer(layerId: string): Promise<TextLayer> {
+  return request(`/layers/${layerId}/summarize`, { method: 'POST' })
+}
+
+export async function explainObject(
+  documentId: string,
+  objectId: string,
+  contextWindow: number = 200
+): Promise<Document> {
+  return request(`/documents/${documentId}/objects/${objectId}/explain`, {
+    method: 'POST',
+    body: JSON.stringify({ context_window: contextWindow }),
   })
 }

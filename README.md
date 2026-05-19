@@ -1,41 +1,51 @@
 # 精读 (IntensiveReading)
 
-辅助精读复杂长文本的工具。对文本进行自动分词，支持为分词标注样式类型，并通过关系系统建立分词之间、分词与文本注释之间的语义关联。
+辅助精读复杂长文本的工具。对文本进行自动分词，支持为分词标注样式类型，并通过关系系统建立分词之间、分词与文本注释之间的语义关联。支持通过 AI 对文本进行总结和术语解释。
 
 ## 技术栈
 
 | 层 | 技术 |
 |---|---|
-| 后端 | Python 3.12, FastAPI, jieba |
-| 前端 | TypeScript, React 18, Vite, Tailwind CSS, Zustand |
+| 后端 | Python 3.12, FastAPI, jieba, openai |
+| 前端 | TypeScript, React 19, Vite, Tailwind CSS, Zustand |
 | 存储 | JSON 文件 |
+| AI | DeepSeek（兼容 OpenAI 协议，可替换） |
 | 包管理 | uv (Python), npm (Node.js) |
 
 ## 项目结构
 
 ```
-├── main.py                     # FastAPI 应用入口
-├── storage.py                  # 文件存储层（含数据迁移逻辑）
-├── services/tokenizer.py       # jieba 分词服务
-├── routers/documents.py        # API 路由
+├── main.py                       # FastAPI 应用入口
+├── storage.py                    # 文件存储层（含数据迁移逻辑）
+├── services/
+│   ├── tokenizer.py              # jieba 分词 + 基于词汇表的分词
+│   └── ai.py                     # AsyncOpenAI 客户端（摘要/解释）
+├── routers/documents.py          # API 路由（文档 + 文本层 + AI 操作）
 ├── frontend/
 │   └── src/
-│       ├── types/index.ts          # 类型定义
-│       ├── api/index.ts            # API 请求层
-│       ├── store/index.ts          # Zustand 状态管理
+│       ├── types/index.ts            # 类型定义
+│       ├── api/index.ts              # API 请求层
+│       ├── store/index.ts            # Zustand 状态管理
 │       └── components/
-│           ├── App.tsx              # 路由配置
-│           ├── HomePage.tsx         # 首页（文档列表 + 上传）
-│           ├── ReaderPage.tsx       # 阅读页
-│           ├── Toolbar.tsx          # 工具栏（保存）
-│           ├── TextCanvas.tsx       # 分词文本渲染
-│           ├── TokenSpan.tsx        # 单个分词组件
-│           └── TokenActionPanel.tsx # 侧边栏（样式/关系/操作）
+│           ├── App.tsx                # 路由配置
+│           ├── HomePage.tsx           # 首页（文档列表 + 上传）
+│           ├── ReaderPage.tsx         # 阅读页（原文/摘要切换）
+│           ├── Toolbar.tsx            # 工具栏（视图切换 + AI 操作）
+│           ├── TextCanvas.tsx         # 分词文本渲染
+│           ├── SummaryCanvas.tsx      # 摘要文本渲染
+│           ├── TokenSpan.tsx          # 单个分词组件
+│           └── TokenActionPanel.tsx   # 侧边栏（样式/关系/操作/AI）
 ```
 
 ## 快速开始
 
 ```bash
+# 0. 配置 AI API Key（可选，不配置则无法使用摘要和解释功能）
+export OPENAI_API_KEY=sk-your-deepseek-key
+#默认为 DeepSeek，如需使用 OpenAI，还需设置：
+#export OPENAI_BASE_URL=https://api.openai.com/v1
+#export OPENAI_MODEL=gpt-4o-mini
+
 # 1. 启动后端
 uv run python main.py
 # 运行于 http://localhost:8000
@@ -50,21 +60,77 @@ cd frontend && npm run dev
 - **自动分词**：上传文本后，后端使用 jieba 进行中文分词，同一词汇的多次出现合并为一个 Token
 - **样式标注**：分词按样式类型以不同样式展示（default / keyword / entity / unknown / punctuation / number / connector）
 - **关系系统**：
-  - **关系对象（RelationObject）**：将分词转为独立的关系对象，或直接创建文本对象
-  - **关系（Relation）**：从已有关系对象中选择 2 个以上，建立语义关联（指代 / 属于 / 链接 / 注释 / 自定义）
+  - **关系对象（RelationObject）**：将分词转为独立的关系对象，或直接创建文本对象。支持手动创建和 AI 解释生成
+  - **关系（Relation）**：从已有关系对象中选择 2 个以上，建立语义关联（指代 / 属于 / 链接 / 注释 / 解释 / 自定义）
 - **分词修正**：支持按含义拆分、按字符拆分、合并相邻分词
 - **修改持久化**：所有修改通过 API 保存到 JSON 文件
+- **AI 摘要**：点击「生成摘要」按钮，AI 对原文进行总结。摘要使用原文的词汇表进行分词（最大正向匹配），与原文共用同一套 Token ID。新出现的词汇自动加入原文词汇表。原文中对词汇的合并操作会自动反映到摘要中
+- **AI 解释**：选中一个已转为关系对象的词汇，点击「AI 解释」，AI 会结合上下文对该术语在文中的含义进行解释，生成的关系存储在原文关系中
+
+## 架构说明：统一词汇与关系
+
+项目的核心设计理念是**原文和所有文本层（摘要等）共用同一套词汇和关系**。
+
+- **词汇表（Vocabulary）**：文档的 `tokens` 是唯一的词汇来源。每个 TextLayer 不拥有自己的 Token，而是引用文档 Token 的 ID，仅存储该 Token 在层文本中的出现位置（`start_offsets`）
+- **词汇表分词**：摘要生成后使用 `tokenize_with_vocabulary()` 分词，通过最大正向匹配算法，优先匹配文档中已有的 Token。未匹配的文本段由 jieba 分词，新词自动加入文档词汇表
+- **关系共享**：关系（Relation）和关系对象（RelationObject）始终存储在 Document 层级。无论在原文视图还是摘要视图编辑关系，修改的都是同一份数据。在摘要中为词汇建立的关系，等同于在原文中为该词汇建立关系
+- **层扩展性**：TextLayer 的 `type` 字段支持未来扩展为其他类型（如翻译、改写等），所有层都遵循统一词汇模型
 
 ## 数据模型
 
-数据以 JSON 文件存储在 `data/documents/<id>.json`。
+数据存储结构：
+
+```
+data/
+├── documents/<id>.json    # 文档（原始文本 + 词汇表 + 关系）
+└── layers/<id>.json       # 文本层（文本 + 位置引用）
+```
+
+### Document（文档）
+
+```json
+{
+  "id": "uuid",
+  "title": "标题",
+  "original_text": "原文内容…",
+  "tokens": [
+    { "id": "uuid", "start_offsets": [0, 50], "text": "人工智能", "style_type": "keyword" }
+  ],
+  "relation_objects": [
+    { "id": "uuid", "token_id": "uuid或null", "text": "文本或null", "kind": "manual" }
+  ],
+  "relations": [
+    { "id": "uuid", "type": "refers_to", "members": [{"kind": "object", "id": "uuid"}] }
+  ],
+  "created_at": "ISO8601",
+  "updated_at": "ISO8601"
+}
+```
+
+### TextLayer（文本层）
+
+```json
+{
+  "id": "uuid",
+  "document_id": "uuid",
+  "type": "summary",
+  "text": "摘要内容…",
+  "tokens": [
+    { "id": "doc_token_uuid", "start_offsets": [5], "text": "人工智能", "style_type": "keyword" }
+  ],
+  "created_at": "ISO8601",
+  "updated_at": "ISO8601"
+}
+```
+
+> TextLayer 的 `tokens[].id` 引用 Document 的 Token ID。`start_offsets` 是该 Token 在层文本中的位置。
 
 ### Token（分词）
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | `id` | string | 唯一标识 |
-| `start_offsets` | number[] | 在原文中的所有出现位置 |
+| `start_offsets` | number[] | 在文本中的所有出现位置 |
 | `text` | string | 分词文本 |
 | `style_type` | string | 样式类型 |
 
@@ -75,6 +141,7 @@ cd frontend && npm run dev
 | `id` | string | 唯一标识 |
 | `token_id` | string\|null | 关联的 Token ID（与 `text` 互斥） |
 | `text` | string\|null | 文本内容（与 `token_id` 互斥） |
+| `kind` | string | 来源：`manual` / `ai_explanation` / `ai_summary` |
 
 > 约束：同一 Token 最多对应一个 RelationObject。
 
@@ -83,12 +150,21 @@ cd frontend && npm run dev
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | `id` | string | 唯一标识 |
-| `type` | string | 关系类型：`refers_to` / `belongs_to` / `links_to` / `annotates` / 自定义 |
-| `object_ids` | string[] | 引用的 RelationObject ID 列表（有序，至少 2 个） |
+| `type` | string | 关系类型：`refers_to` / `belongs_to` / `links_to` / `annotates` / `explains` / 自定义 |
+| `members` | Member[] | 引用的对象列表（有序，至少 2 个，支持嵌套关系） |
 
-> 关系类型定义对象间的语义。如 `refers_to` 表示 object_ids[0] 指代 object_ids[1]。
+### Member（关系成员）
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `kind` | string | `"object"` 或 `"relation"`（支持关系嵌套） |
+| `id` | string | 对应的 RelationObject ID 或 Relation ID |
+
+> 关系类型定义对象间的语义。如 `refers_to` 表示 members[0] 指代 members[1]，`explains` 表示 members[0] 被 members[1] 解释。
 
 ### API
+
+#### 文档
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
@@ -98,11 +174,29 @@ cd frontend && npm run dev
 | `PUT` | `/api/documents/:id` | 保存文档（tokens + relation_objects + relations） |
 | `POST` | `/api/tokens/:id/split` | 拆分指定 Token |
 
+#### 文本层
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| `POST` | `/api/documents/:did/layers` | 创建文本层 |
+| `GET` | `/api/documents/:did/layers` | 列出文档的所有文本层 |
+| `GET` | `/api/layers/:lid` | 获取文本层详情 |
+| `PUT` | `/api/layers/:lid` | 保存文本层的分词位置 |
+| `DELETE` | `/api/layers/:lid` | 删除文本层 |
+
+#### AI 操作
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| `POST` | `/api/layers/:lid/summarize` | 对 type=summary 的层执行 AI 摘要（自动分词并复用词汇表） |
+| `POST` | `/api/documents/:did/objects/:oid/explain` | 对指定关系对象执行 AI 解释 |
+
 ### 数据迁移
 
 存储层包含自动迁移逻辑，按以下顺序执行：
 1. `_migrate_refs_to_relations` — 将旧版 Token 上的 `ref_*` 字段转为独立的 Relation
 2. `_migrate_relations_to_objects` — 将旧版 Relation（source_token_id/target_*）转为 objects 格式
 3. `_migrate_objects_to_top_level` — 将内嵌 objects 提取为顶层 relation_objects 池
+4. `_migrate_objects_add_kind` — 给旧版关系对象补充 `kind: "manual"` 字段
 
 迁移在每次读取文档时自动执行，无需手动干预。

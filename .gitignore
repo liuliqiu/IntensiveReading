@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# Runtime data
+data/
+
+# IDE
+.idea/
+.vscode/
+.opencode/
+
+# OS
+.DS_Store
+
+# Legacy
+intensivereading.db

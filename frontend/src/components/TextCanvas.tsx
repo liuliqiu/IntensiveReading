@@ -1,12 +1,13 @@
 import { useMemo } from 'react'
-import type { Token, RenderToken } from '../types'
+import type { RenderToken, Token } from '../types'
 import TokenSpan from './TokenSpan'
 
 interface Props {
   tokens: Token[]
+  canvas?: 'document' | 'layer'
 }
 
-export default function TextCanvas({ tokens }: Props) {
+export default function TextCanvas({ tokens, canvas = 'document' }: Props) {
   const renderItems: RenderToken[] = useMemo(() => {
     return tokens
       .flatMap((token) =>
@@ -23,7 +24,7 @@ export default function TextCanvas({ tokens }: Props) {
     <div className="p-6">
       <div className="max-w-3xl mx-auto text-lg leading-8 text-gray-800 whitespace-pre-wrap">
         {renderItems.map((item) => (
-          <TokenSpan key={item.key} renderToken={item} />
+          <TokenSpan key={item.key} renderToken={item} canvas={canvas} />
         ))}
       </div>
     </div>

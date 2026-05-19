@@ -4,27 +4,30 @@ import { useReaderStore } from '../store'
 
 interface Props {
   renderToken: RenderToken
+  canvas?: 'document' | 'layer'
 }
 
-export default function TokenSpan({ renderToken }: Props) {
+export default function TokenSpan({ renderToken, canvas = 'document' }: Props) {
   const { token } = renderToken
-  const {
-    hoveredTokenId,
-    selectedTokenId,
-    setSelectedToken,
-    setHoveredToken,
-  } = useReaderStore()
+  const store = useReaderStore()
 
-  const isSelected = selectedTokenId === token.id
+  const isSelected = canvas === 'layer'
+    ? store.layerSelectedTokenId === token.id
+    : store.selectedTokenId === token.id
+
+  const hoveredTokenId = canvas === 'layer'
+    ? store.layerHoveredTokenId
+    : store.hoveredTokenId
+
   const styleClass = `s-${token.style_type}`
 
   const handleClick = useCallback(() => {
-    if (isSelected) {
-      setSelectedToken(null)
+    if (canvas === 'layer') {
+      store.setLayerSelectedToken(isSelected ? null : token.id)
     } else {
-      setSelectedToken(token.id)
+      store.setSelectedToken(isSelected ? null : token.id)
     }
-  }, [isSelected, token.id, setSelectedToken])
+  }, [canvas, isSelected, token.id, store])
 
   return (
     <span
@@ -35,8 +38,12 @@ export default function TokenSpan({ renderToken }: Props) {
       `}
       data-style-type={token.style_type}
       onClick={handleClick}
-      onMouseEnter={() => setHoveredToken(token.id)}
-      onMouseLeave={() => setHoveredToken(null)}
+      onMouseEnter={() => canvas === 'layer'
+        ? store.setLayerHoveredToken(token.id)
+        : store.setHoveredToken(token.id)}
+      onMouseLeave={() => canvas === 'layer'
+        ? store.setLayerHoveredToken(null)
+        : store.setHoveredToken(null)}
     >
       {token.text}
     </span>

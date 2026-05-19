@@ -9,6 +9,7 @@ export interface RelationObject {
   id: string
   token_id?: string
   text?: string
+  kind?: string
 }
 
 export interface RelationMember {
@@ -61,11 +62,30 @@ export const STYLE_LABELS: Record<string, string> = {
   connector: '连接词',
 }
 
-export const RELATION_TYPES = ['refers_to', 'belongs_to', 'links_to', 'annotates'] as const
+export const RELATION_TYPES = ['refers_to', 'belongs_to', 'links_to', 'annotates', 'explains'] as const
 
 export const RELATION_LABELS: Record<string, string> = {
   refers_to: '指代',
   belongs_to: '属于',
   links_to: '链接',
   annotates: '注释',
+  explains: '解释',
 }
+
+export interface TextLayer {
+  id: string
+  document_id: string
+  type: string
+  text: string
+  tokens: Token[]
+  created_at: string
+  updated_at: string
+}
+
+export const LAYER_TYPES = ['summary'] as const
+
+export const LAYER_LABELS: Record<string, string> = {
+  summary: '摘要',
+}
+
+export type ViewMode = 'original' | 'layer'
