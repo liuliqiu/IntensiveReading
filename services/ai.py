@@ -35,6 +35,28 @@ _SUMMARIZE_PROMPT = """你是一个专业的文本分析助手。请对以下中
 """
 
 
+_CONCEPTS_PROMPT = """你是一个专业的文本分析助手。请分析以下摘要文本中的关键概念及其之间的关系。
+
+要求：
+1. 提取文本中提到的所有关键概念（专业术语、核心主题等）。每个概念的 "text" 字段必须是文本中出现的精确原文片段。
+2. 分析这些概念之间的语义关系。
+3. 关系类型使用以下之一：causal(因果), contains(包含), contrasts(对比), complements(互补), precedes(递进), describes(描述)
+
+请严格按照以下JSON格式输出，不要输出其他内容：
+{
+  "concepts": [
+    {"text": "Transformer架构", "description": "一种基于注意力机制的深度学习架构"},
+    {"text": "注意力机制", "description": "Transformer的核心组件，用于计算序列中不同位置的相关性"}
+  ],
+  "relationships": [
+    {"type": "contains", "source": "Transformer架构", "target": "注意力机制", "description": "Transformer架构包含注意力机制作为其核心组件"}
+  ]
+}
+
+摘要文本：
+"""
+
+
 _EXPLAIN_PROMPT = """你是一个专业的文本分析助手。请结合上下文解释以下术语在文中的含义。
 
 术语：「{term}」
@@ -67,6 +89,22 @@ async def summarize_text(original_text: str, model: str | None = None) -> tuple[
     summary = data.get("summary", "")
     term_mapping = data.get("term_mapping", [])
     return summary, term_mapping
+
+
+async def analyze_concepts(text: str, model: str | None = None) -> tuple[list[dict], list[dict]]:
+    m = model or _MODEL
+    response = await _get_client().chat.completions.create(
+        model=m,
+        messages=[{"role": "user", "content": _CONCEPTS_PROMPT + text}],
+        temperature=0.3,
+        max_tokens=4096,
+    )
+    content = response.choices[0].message.content or ""
+    cleaned = _clean_json_response(content)
+    data = json.loads(cleaned)
+    concepts = data.get("concepts", [])
+    relationships = data.get("relationships", [])
+    return concepts, relationships
 
 
 async def explain_text(term: str, context: str, model: str | None = None) -> str:

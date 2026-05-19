@@ -21,6 +21,7 @@ export interface Relation {
   id: string
   type: string
   members: RelationMember[]
+  description?: string
 }
 
 export interface RenderToken {
@@ -70,6 +71,12 @@ export const RELATION_LABELS: Record<string, string> = {
   links_to: '链接',
   annotates: '注释',
   explains: '解释',
+  causal: '因果',
+  contains: '包含',
+  contrasts: '对比',
+  complements: '互补',
+  precedes: '递进',
+  describes: '描述',
 }
 
 export interface TextLayer {

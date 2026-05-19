@@ -90,6 +90,10 @@ export async function summarizeLayer(layerId: string): Promise<TextLayer> {
   return request(`/layers/${layerId}/summarize`, { method: 'POST' })
 }
 
+export async function analyzeConcepts(layerId: string): Promise<Document> {
+  return request(`/layers/${layerId}/concepts`, { method: 'POST' })
+}
+
 export async function explainObject(
   documentId: string,
   objectId: string,

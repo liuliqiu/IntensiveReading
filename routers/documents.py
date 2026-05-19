@@ -46,6 +46,7 @@ class RelationSchema(BaseModel):
     id: str
     type: str
     members: list[MemberSchema]
+    description: str | None = None
 
     class Config:
         from_attributes = True
@@ -322,6 +323,74 @@ async def summarize_layer(layer_id: str):
     save_layer(layer)
 
     return _layer_to_out(layer)
+
+
+@router.post("/layers/{layer_id}/concepts", response_model=DocumentOut)
+async def analyze_layer_concepts(layer_id: str):
+    layer = get_layer(layer_id)
+    if not layer:
+        raise HTTPException(status_code=404, detail="Layer not found")
+    if layer["type"] != "summary":
+        raise HTTPException(status_code=400, detail="Layer type must be 'summary'")
+    if not layer.get("text"):
+        raise HTTPException(status_code=400, detail="Layer has no summary text")
+
+    doc = get_document(layer["document_id"])
+    if not doc:
+        raise HTTPException(status_code=404, detail="Parent document not found")
+
+    from services.ai import analyze_concepts
+    concepts, relationships = await analyze_concepts(layer["text"])
+
+    concept_objects: dict[str, str] = {}
+    for c in concepts:
+        obj_id = gen_id()
+        concept_objects[c["text"]] = obj_id
+        doc.setdefault("relation_objects", []).append({
+            "id": obj_id,
+            "token_id": None,
+            "text": c["text"],
+            "kind": "ai_concept",
+        })
+
+        description = c.get("description", "")
+        if description:
+            desc_obj_id = gen_id()
+            doc.setdefault("relation_objects", []).append({
+                "id": desc_obj_id,
+                "token_id": None,
+                "text": description,
+                "kind": "ai_concept_desc",
+            })
+            doc.setdefault("relations", []).append({
+                "id": gen_id(),
+                "type": "explains",
+                "members": [
+                    {"kind": "object", "id": obj_id},
+                    {"kind": "object", "id": desc_obj_id},
+                ],
+            })
+
+    for r in relationships:
+        src_id = concept_objects.get(r.get("source", ""))
+        tgt_id = concept_objects.get(r.get("target", ""))
+        if not src_id or not tgt_id:
+            continue
+        doc.setdefault("relations", []).append({
+            "id": gen_id(),
+            "type": r.get("type", ""),
+            "description": r.get("description", ""),
+            "members": [
+                {"kind": "object", "id": src_id},
+                {"kind": "object", "id": tgt_id},
+            ],
+        })
+
+    doc["updated_at"] = utcnow()
+    save_document(doc)
+
+    updated = get_document(layer["document_id"])
+    return _doc_to_out(updated)
 
 
 @router.post("/documents/{doc_id}/objects/{object_id}/explain", response_model=DocumentOut)

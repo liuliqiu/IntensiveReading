@@ -66,6 +66,7 @@ cd frontend && npm run dev
 - **修改持久化**：所有修改通过 API 保存到 JSON 文件
 - **AI 摘要**：点击「生成摘要」按钮，AI 对原文进行总结。摘要使用原文的词汇表进行分词（最大正向匹配），与原文共用同一套 Token ID。新出现的词汇自动加入原文词汇表。原文中对词汇的合并操作会自动反映到摘要中
 - **AI 解释**：选中一个已转为关系对象的词汇，点击「AI 解释」，AI 会结合上下文对该术语在文中的含义进行解释，生成的关系存储在原文关系中
+- **AI 概念分析**：在摘要视图下，点击「分析概念关系」按钮，AI 自动提取摘要中的关键概念及其语义关系，以结构化列表形式展示（因果/包含/对比/互补/递进/描述）。每个概念的描述也作为独立的关系对象存储，通过 `explains` 关系与概念名关联
 
 ## 架构说明：统一词汇与关系
 
@@ -141,7 +142,7 @@ data/
 | `id` | string | 唯一标识 |
 | `token_id` | string\|null | 关联的 Token ID（与 `text` 互斥） |
 | `text` | string\|null | 文本内容（与 `token_id` 互斥） |
-| `kind` | string | 来源：`manual` / `ai_explanation` / `ai_summary` |
+| `kind` | string | 来源：`manual` / `ai_explanation` / `ai_summary` / `ai_concept` / `ai_concept_desc` |
 
 > 约束：同一 Token 最多对应一个 RelationObject。
 
@@ -150,8 +151,9 @@ data/
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | `id` | string | 唯一标识 |
-| `type` | string | 关系类型：`refers_to` / `belongs_to` / `links_to` / `annotates` / `explains` / 自定义 |
+| `type` | string | 关系类型：`refers_to` / `belongs_to` / `links_to` / `annotates` / `explains` / `causal` / `contains` / `contrasts` / `complements` / `precedes` / `describes` / 自定义 |
 | `members` | Member[] | 引用的对象列表（有序，至少 2 个，支持嵌套关系） |
+| `description` | string\|null | AI 生成的关系描述（可选） |
 
 ### Member（关系成员）
 
@@ -190,6 +192,7 @@ data/
 |---|---|---|
 | `POST` | `/api/layers/:lid/summarize` | 对 type=summary 的层执行 AI 摘要（自动分词并复用词汇表） |
 | `POST` | `/api/documents/:did/objects/:oid/explain` | 对指定关系对象执行 AI 解释 |
+| `POST` | `/api/layers/:lid/concepts` | 对 type=summary 的层执行 AI 概念分析 |
 
 ### 数据迁移
 

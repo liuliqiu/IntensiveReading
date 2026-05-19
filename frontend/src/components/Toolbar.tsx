@@ -1,7 +1,7 @@
 import { useCallback, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useReaderStore } from '../store'
-import { createLayer, fetchLayers, summarizeLayer } from '../api'
+import { createLayer, fetchLayers, summarizeLayer, analyzeConcepts } from '../api'
 
 export default function Toolbar() {
   const navigate = useNavigate()
@@ -15,6 +15,9 @@ export default function Toolbar() {
   const setLayerData = useReaderStore((s) => s.setLayerData)
   const summarizing = useReaderStore((s) => s.summarizing)
   const setSummarizing = useReaderStore((s) => s.setSummarizing)
+  const analyzingConcepts = useReaderStore((s) => s.analyzingConcepts)
+  const setAnalyzingConcepts = useReaderStore((s) => s.setAnalyzingConcepts)
+  const setDocument = useReaderStore((s) => s.setDocument)
   const layers = useReaderStore((s) => s.layers)
 
   useEffect(() => {
@@ -51,7 +54,22 @@ export default function Toolbar() {
     }
   }, [document, layers, setSummarizing, setSelectedLayer, setLayers, setLayerData])
 
+  const handleAnalyzeConcepts = useCallback(async () => {
+    const layerId = selectedLayerId
+    if (!layerId) return
+    setAnalyzingConcepts(true)
+    try {
+      const doc = await analyzeConcepts(layerId)
+      setDocument(doc)
+    } catch (e) {
+      alert(`概念分析失败：${e instanceof Error ? e.message : e}`)
+    } finally {
+      setAnalyzingConcepts(false)
+    }
+  }, [selectedLayerId, setAnalyzingConcepts, setDocument])
+
   const hasSummary = layers.some((l) => l.type === 'summary' && l.text)
+  const showAnalyzeConcepts = viewMode === 'layer' && hasSummary
 
   return (
     <div className="flex items-center gap-3 p-3 border-b bg-white shrink-0">
@@ -100,6 +118,15 @@ export default function Toolbar() {
         >
           {summarizing ? '生成中...' : hasSummary ? '重新生成摘要' : '🤖 生成摘要'}
         </button>
+        {showAnalyzeConcepts && (
+          <button
+            onClick={handleAnalyzeConcepts}
+            disabled={analyzingConcepts}
+            className="px-3 py-1 text-xs bg-purple-600 text-white rounded hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {analyzingConcepts ? '分析中...' : '🤖 分析概念关系'}
+          </button>
+        )}
       </div>
     </div>
   )

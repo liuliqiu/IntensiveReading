@@ -57,6 +57,7 @@ interface ReaderState {
   viewMode: ViewMode
   summarizing: boolean
   explaining: boolean
+  analyzingConcepts: boolean
   layerHoveredTokenId: string | null
   layerSelectedTokenId: string | null
 
@@ -89,6 +90,7 @@ interface ReaderState {
   setViewMode: (mode: ViewMode) => void
   setSummarizing: (v: boolean) => void
   setExplaining: (v: boolean) => void
+  setAnalyzingConcepts: (v: boolean) => void
   setLayerHoveredToken: (id: string | null) => void
   setLayerSelectedToken: (id: string | null) => void
 }
@@ -111,6 +113,7 @@ export const useReaderStore = create<ReaderState>((set) => ({
   viewMode: 'original' as ViewMode,
   summarizing: false,
   explaining: false,
+  analyzingConcepts: false,
   layerHoveredTokenId: null,
   layerSelectedTokenId: null,
 
@@ -402,6 +405,7 @@ export const useReaderStore = create<ReaderState>((set) => ({
       viewMode: 'original',
       summarizing: false,
       explaining: false,
+      analyzingConcepts: false,
       layerHoveredTokenId: null,
       layerSelectedTokenId: null,
     }),
@@ -414,6 +418,7 @@ export const useReaderStore = create<ReaderState>((set) => ({
     set({ viewMode: mode, selectedTokenId: null, hoveredTokenId: null, layerSelectedTokenId: null, layerHoveredTokenId: null }),
   setSummarizing: (v) => set({ summarizing: v }),
   setExplaining: (v) => set({ explaining: v }),
+  setAnalyzingConcepts: (v) => set({ analyzingConcepts: v }),
   setLayerHoveredToken: (id) => set({ layerHoveredTokenId: id }),
   setLayerSelectedToken: (id) => set({ layerSelectedTokenId: id }),
 }))
