@@ -3,10 +3,23 @@ export interface Token {
   start_offsets: number[]
   text: string
   style_type: string
-  ref_type: 'internal' | 'external' | 'note' | null
-  ref_target_token_id: string | null
-  ref_url: string | null
-  ref_explanation: string | null
+}
+
+export interface RelationObject {
+  id: string
+  token_id?: string
+  text?: string
+}
+
+export interface RelationMember {
+  kind: 'object' | 'relation'
+  id: string
+}
+
+export interface Relation {
+  id: string
+  type: string
+  members: RelationMember[]
 }
 
 export interface RenderToken {
@@ -20,6 +33,8 @@ export interface Document {
   title: string
   original_text: string
   tokens: Token[]
+  relation_objects: RelationObject[]
+  relations: Relation[]
   created_at: string
   updated_at: string
 }
@@ -44,4 +59,13 @@ export const STYLE_LABELS: Record<string, string> = {
   punctuation: '标点符号',
   number: '数字',
   connector: '连接词',
+}
+
+export const RELATION_TYPES = ['refers_to', 'belongs_to', 'links_to', 'annotates'] as const
+
+export const RELATION_LABELS: Record<string, string> = {
+  refers_to: '指代',
+  belongs_to: '属于',
+  links_to: '链接',
+  annotates: '注释',
 }

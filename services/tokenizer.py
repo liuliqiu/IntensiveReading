@@ -50,10 +50,6 @@ def tokenize_text(text: str) -> list[dict]:
             "start_offset": start,
             "text": word,
             "style_type": _classify_token(word),
-            "ref_type": None,
-            "ref_target_token_id": None,
-            "ref_url": None,
-            "ref_explanation": None,
         }
         for word, start, end in results
     ]
@@ -72,10 +68,6 @@ def tokenize_and_merge(text: str) -> list[dict]:
                 "start_offsets": [],
                 "text": key,
                 "style_type": _classify_token(key),
-                "ref_type": None,
-                "ref_target_token_id": None,
-                "ref_url": None,
-                "ref_explanation": None,
             }
             order.append(key)
         groups[key]["start_offsets"].append(t["start_offset"])

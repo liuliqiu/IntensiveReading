@@ -8,7 +8,7 @@ import TokenActionPanel from './TokenActionPanel'
 
 export default function ReaderPage() {
   const { id } = useParams<{ id: string }>()
-  const { document, tokens, loading, error, selectedTokenId, setDocument, setLoading, setError } =
+  const { document, tokens, loading, error, setDocument, setLoading, setError } =
     useReaderStore()
 
   useEffect(() => {
@@ -47,11 +47,9 @@ export default function ReaderPage() {
           <TextCanvas tokens={tokens} />
         </div>
       </div>
-      {selectedTokenId && (
-        <div className="w-80 shrink-0 bg-white border-l shadow-lg overflow-hidden flex flex-col transition-all duration-300">
-          <TokenActionPanel />
-        </div>
-      )}
+      <div className="w-80 shrink-0 bg-white border-l shadow-lg overflow-hidden flex flex-col transition-all duration-300">
+        <TokenActionPanel />
+      </div>
     </div>
   )
 }

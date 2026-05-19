@@ -1,33 +1,65 @@
 import { useState, useMemo } from 'react'
-import type { Token } from '../types'
-import { STYLE_TYPES, STYLE_LABELS } from '../types'
+import type { Relation, RelationMember, RelationObject, Token } from '../types'
+import { STYLE_TYPES, STYLE_LABELS, RELATION_TYPES, RELATION_LABELS } from '../types'
 import { useReaderStore } from '../store'
-import { saveTokens, splitTokenByMeaning } from '../api'
+import { saveDocument, splitTokenByMeaning } from '../api'
 
 type OpTab = 'meaning' | 'char' | 'merge'
 
 export default function TokenActionPanel() {
-  const tokens = useReaderStore((s) => s.tokens)
   const selectedTokenId = useReaderStore((s) => s.selectedTokenId)
+  const tokens = useReaderStore((s) => s.tokens)
+  const token = tokens.find((t) => t.id === selectedTokenId)
+
+  if (!token) {
+    return <RelationOverview />
+  }
+
+  return <TokenDetail token={token} />
+}
+
+// ── TokenDetail ──
+
+function TokenDetail({ token }: { token: Token }) {
+  const tokens = useReaderStore((s) => s.tokens)
+  const relationObjects = useReaderStore((s) => s.relation_objects)
+  const relations = useReaderStore((s) => s.relations)
   const document = useReaderStore((s) => s.document)
   const saving = useReaderStore((s) => s.saving)
   const setSelectedToken = useReaderStore((s) => s.setSelectedToken)
   const setSaving = useReaderStore((s) => s.setSaving)
   const updateToken = useReaderStore((s) => s.updateToken)
+  const addRelationObject = useReaderStore((s) => s.addRelationObject)
+  const deleteRelationObject = useReaderStore((s) => s.deleteRelationObject)
+  const addRelation = useReaderStore((s) => s.addRelation)
+  const updateRelation = useReaderStore((s) => s.updateRelation)
+  const deleteRelation = useReaderStore((s) => s.deleteRelation)
   const splitTokenAll = useReaderStore((s) => s.splitTokenAll)
   const mergeAdjacentAll = useReaderStore((s) => s.mergeAdjacentAll)
 
-  const token = tokens.find((t) => t.id === selectedTokenId)
-  if (!token) {
-    setSelectedToken(null)
-    return null
-  }
+  const tokenRelationObject = relationObjects.find((ro) => ro.token_id === token.id)
 
-  const [refType, setRefType] = useState<string>(token.ref_type || '')
-  const [targetId, setTargetId] = useState(token.ref_target_token_id || '')
-  const [url, setUrl] = useState(token.ref_url || '')
-  const [explanation, setExplanation] = useState(token.ref_explanation || '')
+  const tokenRelations = useMemo(
+    () =>
+      tokenRelationObject
+        ? relations.filter((r) => r.members.some((m) => m.id === tokenRelationObject.id))
+        : [],
+    [relations, tokenRelationObject]
+  )
+
   const [styleType, setStyleType] = useState(token.style_type)
+
+  // Relation editing state
+  const [editingRelId, setEditingRelId] = useState<string | null>(null)
+  const [editType, setEditType] = useState<string>('')
+  const [editCustomType, setEditCustomType] = useState('')
+  const [editMembers, setEditMembers] = useState<RelationMember[]>([])
+
+  // Text object creation state
+  const [showTextObj, setShowTextObj] = useState(false)
+  const [textObjValue, setTextObjValue] = useState('')
+
+  // Operations state
   const [opTab, setOpTab] = useState<OpTab>('meaning')
   const [checkedOffsets, setCheckedOffsets] = useState<Set<number>>(new Set())
   const [charSplitPos, setCharSplitPos] = useState<number | null>(null)
@@ -64,19 +96,97 @@ export default function TokenActionPanel() {
     return [...groups.values()]
   }, [token, tokens])
 
-  const handleSave = async () => {
-    updateToken(token.id, {
-      style_type: styleType,
-      ref_type: (refType || null) as Token['ref_type'],
-      ref_target_token_id: refType === 'internal' ? targetId : null,
-      ref_url: refType === 'external' ? url : null,
-      ref_explanation: refType === 'note' ? explanation : null,
+  const handleConvertToken = () => {
+    if (tokenRelationObject) return
+    addRelationObject({
+      id: crypto.randomUUID(),
+      token_id: token.id,
     })
+  }
+
+  const handleDeleteTokenObject = () => {
+    if (!tokenRelationObject) return
+    const refCount = relations.filter((r) => r.members.some((m) => m.id === tokenRelationObject.id)).length
+    if (refCount > 0) {
+      alert(`该对象被 ${refCount} 个关系引用，无法删除`)
+      return
+    }
+    deleteRelationObject(tokenRelationObject.id)
+  }
+
+  const handleAddTextObject = () => {
+    if (!textObjValue.trim()) return
+    addRelationObject({
+      id: crypto.randomUUID(),
+      text: textObjValue.trim(),
+    })
+    setTextObjValue('')
+    setShowTextObj(false)
+  }
+
+  const startCreating = () => {
+    setEditingRelId('new')
+    setEditType('')
+    setEditCustomType('')
+    setEditMembers(
+      tokenRelationObject ? [{ kind: 'object' as const, id: tokenRelationObject.id }] : []
+    )
+  }
+
+  const startEditing = (rel: Relation) => {
+    setEditingRelId(rel.id)
+    setEditType(rel.type)
+    setEditCustomType('')
+    setEditMembers(rel.members.map((m) => ({ ...m })))
+  }
+
+  const cancelEditing = () => setEditingRelId(null)
+
+  const toggleMemberSelection = (kind: 'object' | 'relation', id: string) => {
+    setEditMembers((prev) => {
+      const idx = prev.findIndex((m) => m.kind === kind && m.id === id)
+      if (idx >= 0) return prev.filter((_, i) => i !== idx)
+      return [...prev, { kind, id }]
+    })
+  }
+
+  const isMemberSelected = (kind: 'object' | 'relation', id: string) =>
+    editMembers.some((m) => m.kind === kind && m.id === id)
+
+  const commitEditing = () => {
+    const type = editType === '__custom__' ? editCustomType.trim() : editType
+    if (!type) return
+    if (editMembers.length < 2) return
+
+    if (editingRelId === 'new') {
+      addRelation({
+        id: crypto.randomUUID(),
+        type,
+        members: editMembers,
+      })
+    } else if (editingRelId) {
+      updateRelation(editingRelId, { type, members: editMembers })
+    }
+
+    setEditingRelId(null)
+  }
+
+  const handleSave = async () => {
     if (!document) return
     setSaving(true)
     try {
-      const saved = await saveTokens(document.id, useReaderStore.getState().tokens)
-      useReaderStore.setState({ tokens: saved })
+      const state = useReaderStore.getState()
+      const saved = await saveDocument(
+        document.id,
+        state.tokens,
+        state.relation_objects,
+        state.relations
+      )
+      useReaderStore.setState({
+        tokens: saved.tokens,
+        relation_objects: saved.relation_objects,
+        relations: saved.relations,
+      })
     } catch (e) {
       alert(`保存失败：${e instanceof Error ? e.message : e}`)
     } finally {
@@ -88,7 +198,11 @@ export default function TokenActionPanel() {
     if (checkedOffsets.size === 0 || checkedOffsets.size >= token.start_offsets.length) return
     try {
       const updated = await splitTokenByMeaning(token.id, [...checkedOffsets])
-      useReaderStore.setState({ tokens: [...updated.tokens] })
+      useReaderStore.setState({
+        tokens: [...updated.tokens],
+        relation_objects: updated.relation_objects || [],
+        relations: updated.relations || [],
+      })
     } catch (e) {
       alert(`拆分失败：${e instanceof Error ? e.message : e}`)
     }
@@ -114,10 +228,51 @@ export default function TokenActionPanel() {
     })
   }
 
-  const target =
-    token.ref_type === 'internal' && token.ref_target_token_id
-      ? tokens.find((t) => t.id === token.ref_target_token_id)
-      : null
+  const resolveObjectDisplay = (obj: RelationObject): string => {
+    if (obj.token_id) {
+      const t = tokens.find((tok) => tok.id === obj.token_id)
+      return t ? `「${t.text}」` : '(已删除)'
+    }
+    if (obj.text) {
+      const short = obj.text.slice(0, 20)
+      return obj.text.length > 20 ? short + '…' : short
+    }
+    return obj.id.slice(0, 8)
+  }
+
+  const resolveRelationDisplay = (rel: Relation): string => {
+    const typeLabel = isPredefined(rel.type) ? RELATION_LABELS[rel.type] || rel.type : rel.type
+    const summary = rel.members
+      .map((m) => {
+        if (m.kind === 'object') {
+          const obj = relationObjects.find((ro) => ro.id === m.id)
+          return obj ? resolveObjectDisplay(obj) : '?'
+        }
+        const r = relations.find((rr) => rr.id === m.id)
+        if (r) {
+          const tl = isPredefined(r.type) ? RELATION_LABELS[r.type] || r.type : r.type
+          return `[${tl}]`
+        }
+        return '?'
+      })
+      .join(' → ')
+    return `${typeLabel}: ${summary}`
+  }
+
+  const resolveMemberDisplay = (m: RelationMember): string => {
+    if (m.kind === 'object') {
+      const obj = relationObjects.find((ro) => ro.id === m.id)
+      return obj ? resolveObjectDisplay(obj) : '?'
+    }
+    const rel = relations.find((r) => r.id === m.id)
+    if (rel) {
+      const tl = isPredefined(rel.type) ? RELATION_LABELS[rel.type] || rel.type : rel.type
+      return `[关系:${tl}]`
+    }
+    return '?'
+  }
+
+  const isPredefined = (t: string) => (RELATION_TYPES as readonly string[]).includes(t)
 
   const TAB_LABELS: Record<OpTab, string> = {
     meaning: '拆分含义',
@@ -151,7 +306,10 @@ export default function TokenActionPanel() {
           </label>
           <select
             value={styleType}
-            onChange={(e) => setStyleType(e.target.value)}
+            onChange={(e) => {
+              setStyleType(e.target.value)
+              updateToken(token.id, { style_type: e.target.value })
+            }}
             className="w-full border rounded px-3 py-2 text-sm"
           >
             {STYLE_TYPES.map((t) => (
@@ -162,112 +320,272 @@ export default function TokenActionPanel() {
           </select>
         </div>
 
-        {/* ── Referent type ── */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            指代类型
-          </label>
-          <select
-            value={refType}
-            onChange={(e) => {
-              setRefType(e.target.value)
-              setTargetId('')
-              setUrl('')
-              setExplanation('')
-            }}
-            className="w-full border rounded px-3 py-2 text-sm"
-          >
-            <option value="">无指代</option>
-            <option value="internal">文中指代</option>
-            <option value="external">外部链接</option>
-            <option value="note">文字注释</option>
-          </select>
+        {/* ── Relation Objects ── */}
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium text-gray-700">关系对象</span>
+            <button
+              onClick={() => setShowTextObj(!showTextObj)}
+              className="text-xs text-blue-600 hover:text-blue-800"
+            >
+              + 文本对象
+            </button>
+          </div>
+
+          {showTextObj && (
+            <div className="border rounded p-2 bg-gray-50 space-y-2">
+              <input
+                value={textObjValue}
+                onChange={(e) => setTextObjValue(e.target.value)}
+                className="w-full border rounded px-2 py-1 text-xs"
+                placeholder="输入文本…"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleAddTextObject()
+                }}
+              />
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setShowTextObj(false)}
+                  className="flex-1 px-2 py-1 text-xs border rounded hover:bg-gray-100"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={handleAddTextObject}
+                  disabled={!textObjValue.trim()}
+                  className="flex-1 px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                >
+                  添加
+                </button>
+              </div>
+            </div>
+          )}
+
+          {tokenRelationObject ? (
+            <div className="border rounded p-2 text-xs flex items-center justify-between gap-2">
+              <span className="text-gray-500">
+                <span className="text-gray-400">分词 </span>
+                「{token.text}」
+              </span>
+              <button
+                onClick={handleDeleteTokenObject}
+                className="text-gray-400 hover:text-red-500 shrink-0"
+              >
+                ✕
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={handleConvertToken}
+              className="w-full px-3 py-2 text-xs border rounded bg-blue-50 text-blue-700 hover:bg-blue-100"
+            >
+              将「{token.text}」转为关系对象
+            </button>
+          )}
+
+          {relationObjects
+            .filter((ro) => !ro.token_id)
+            .map((ro) => {
+              const refCount = relations.filter((r) => r.members.some((m) => m.id === ro.id)).length
+              return (
+                <div
+                  key={ro.id}
+                  className="border rounded p-2 text-xs flex items-center justify-between gap-2"
+                >
+                  <span className="text-gray-500 truncate">
+                    <span className="text-gray-400">文本 </span>
+                    {resolveObjectDisplay(ro)}
+                  </span>
+                  <button
+                    onClick={() => {
+                      if (refCount > 0) {
+                        alert(`该对象被 ${refCount} 个关系引用，无法删除`)
+                        return
+                      }
+                      deleteRelationObject(ro.id)
+                    }}
+                    className="text-gray-400 hover:text-red-500 shrink-0"
+                  >
+                    ✕
+                  </button>
+                </div>
+              )
+            })}
         </div>
 
-        {refType === 'internal' && (
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              指代目标（文中分词）
-            </label>
-            <select
-              value={targetId}
-              onChange={(e) => setTargetId(e.target.value)}
-              className="w-full border rounded px-3 py-2 text-sm"
-            >
-              <option value="">选择目标...</option>
-              {tokens
-                .filter((t) => t.id !== token.id)
-                .map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.text}
-                  </option>
-                ))}
-            </select>
-          </div>
-        )}
-
-        {refType === 'external' && (
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              外部 URL
-            </label>
-            <input
-              type="url"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              placeholder="https://..."
-              className="w-full border rounded px-3 py-2 text-sm"
-            />
-          </div>
-        )}
-
-        {refType === 'note' && (
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              解释文字
-            </label>
-            <textarea
-              value={explanation}
-              onChange={(e) => setExplanation(e.target.value)}
-              rows={3}
-              className="w-full border rounded px-3 py-2 text-sm resize-y"
-            />
-          </div>
-        )}
-
-        {token.ref_type && (
-          <div className="bg-gray-50 rounded p-3 text-sm">
-            <div className="text-xs text-gray-400 mb-1">当前指代</div>
-            {token.ref_type === 'internal' && target && (
-              <div className="text-gray-700">
-                指代 → <span className="font-medium">{target.text}</span>
-              </div>
-            )}
-            {token.ref_type === 'external' && token.ref_url && (
-              <a
-                href={token.ref_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-blue-600 underline break-all"
-              >
-                {token.ref_url}
-              </a>
-            )}
-            {token.ref_type === 'note' && token.ref_explanation && (
-              <div className="text-gray-600">{token.ref_explanation}</div>
-            )}
-          </div>
-        )}
-
-        {/* ── Divider ── */}
         <div className="border-t" />
 
-        {/* ── Operations (tabs) ── */}
+        {/* ── Relations ── */}
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium text-gray-700">关系</span>
+            <button
+              onClick={startCreating}
+              disabled={!tokenRelationObject && relationObjects.filter((ro) => !ro.token_id).length === 0}
+              className="text-xs text-blue-600 hover:text-blue-800 disabled:text-gray-300"
+            >
+              + 添加关系
+            </button>
+          </div>
+
+          {tokenRelations.map((rel) => (
+            <div
+              key={rel.id}
+              className={`border rounded p-2 text-xs ${editingRelId === rel.id ? 'ring-2 ring-blue-300' : ''}`}
+            >
+              {editingRelId === rel.id ? null : (
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5 truncate flex-1 min-w-0">
+                    <span className="bg-gray-100 px-1.5 py-0.5 rounded text-gray-700 shrink-0">
+                      {isPredefined(rel.type) ? RELATION_LABELS[rel.type] || rel.type : rel.type}
+                    </span>
+                    <span className="text-gray-400 shrink-0">:</span>
+                    <span className="text-gray-500 truncate">
+                      {rel.members.map((m, i) =>
+                        (i > 0 ? ' → ' : '') + resolveMemberDisplay(m)
+                      )}
+                    </span>
+                  </div>
+                  <div className="flex gap-1 shrink-0">
+                    <button
+                      onClick={() => startEditing(rel)}
+                      className="text-gray-400 hover:text-gray-600"
+                    >
+                      编辑
+                    </button>
+                    <button
+                      onClick={() => {
+                        const refCount = relations.filter(
+                          (r) => r.id !== rel.id && r.members.some((m) => m.kind === 'relation' && m.id === rel.id)
+                        ).length
+                        if (refCount > 0) {
+                          alert(`该关系被 ${refCount} 个关系引用，无法删除`)
+                          return
+                        }
+                        deleteRelation(rel.id)
+                      }}
+                      className="text-red-400 hover:text-red-600"
+                    >
+                      删除
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+
+          {editingRelId && (
+            <div className="border rounded p-3 space-y-3 bg-gray-50">
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">类型</label>
+                <select
+                  value={isPredefined(editType) ? editType : '__custom__'}
+                  onChange={(e) => {
+                    const v = e.target.value
+                    setEditType(v === '__custom__' ? '' : v)
+                    if (v !== '__custom__') setEditCustomType('')
+                  }}
+                  className="w-full border rounded px-2 py-1.5 text-xs"
+                >
+                  <option value="">选择类型…</option>
+                  {RELATION_TYPES.map((t) => (
+                    <option key={t} value={t}>
+                      {RELATION_LABELS[t]}
+                    </option>
+                  ))}
+                  <option value="__custom__">自定义…</option>
+                </select>
+                {(!editType || editType === '__custom__') && (
+                  <input
+                    value={editCustomType}
+                    onChange={(e) => {
+                      setEditCustomType(e.target.value)
+                      setEditType('__custom__')
+                    }}
+                    placeholder="输入自定义类型"
+                    className="w-full border rounded px-2 py-1.5 text-xs mt-1"
+                  />
+                )}
+              </div>
+
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">
+                  选择对象（已选 {editMembers.length}）
+                </label>
+                <div className="max-h-48 overflow-y-auto border rounded bg-white divide-y">
+                  {relationObjects.map((ro) => (
+                    <label
+                      key={`obj:${ro.id}`}
+                      className="flex items-center gap-2 px-2 py-1.5 text-xs hover:bg-gray-50 cursor-pointer"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isMemberSelected('object', ro.id)}
+                        onChange={() => toggleMemberSelection('object', ro.id)}
+                      />
+                      <span className="text-gray-400 shrink-0">
+                        {ro.token_id ? '分词' : '文本'}
+                      </span>
+                      <span className="text-gray-700 truncate">
+                        {resolveObjectDisplay(ro)}
+                      </span>
+                    </label>
+                  ))}
+                  {relations
+                    .filter((r) => r.id !== editingRelId)
+                    .map((rel) => (
+                      <label
+                        key={`rel:${rel.id}`}
+                        className="flex items-center gap-2 px-2 py-1.5 text-xs hover:bg-gray-50 cursor-pointer"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isMemberSelected('relation', rel.id)}
+                          onChange={() => toggleMemberSelection('relation', rel.id)}
+                        />
+                        <span className="text-gray-400 shrink-0">关系</span>
+                        <span className="text-gray-700 truncate">
+                          {resolveRelationDisplay(rel)}
+                        </span>
+                      </label>
+                    ))}
+                  {relationObjects.length === 0 && relations.length === 0 && (
+                    <div className="px-2 py-3 text-xs text-gray-400 text-center">
+                      暂无关系对象或关系，请先创建
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  onClick={cancelEditing}
+                  className="flex-1 px-3 py-1.5 text-xs border rounded hover:bg-gray-100"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={commitEditing}
+                  disabled={
+                    !(isPredefined(editType) ? editType : editCustomType.trim()) ||
+                    editMembers.length < 2
+                  }
+                  className="flex-1 px-3 py-1.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {editingRelId === 'new' ? '添加' : '保存'}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="border-t" />
+
+        {/* ── Operations ── */}
         <div className="text-xs font-medium text-gray-400 uppercase tracking-wide">
           操作
         </div>
 
-        {/* Tab bar */}
         <div className="flex border rounded overflow-hidden">
           {(Object.keys(TAB_LABELS) as OpTab[]).map((tab) => (
             <button
@@ -284,7 +602,6 @@ export default function TokenActionPanel() {
           ))}
         </div>
 
-        {/* Tab: Meaning split */}
         {opTab === 'meaning' && (
           <div className="border rounded p-3">
             {token.start_offsets.length <= 1 ? (
@@ -347,7 +664,6 @@ export default function TokenActionPanel() {
           </div>
         )}
 
-        {/* Tab: Char split */}
         {opTab === 'char' && (
           <div className="border rounded p-3">
             <div className="flex items-center flex-wrap justify-center gap-0 mb-2 py-2 bg-gray-50 rounded text-base">
@@ -377,7 +693,6 @@ export default function TokenActionPanel() {
           </div>
         )}
 
-        {/* Tab: Merge adjacent */}
         {opTab === 'merge' && (
           <div className="border rounded p-3 space-y-2">
             {adjacentGroups.length === 0 ? (
@@ -421,6 +736,97 @@ export default function TokenActionPanel() {
         >
           {saving ? '保存中...' : '保存'}
         </button>
+      </div>
+    </div>
+  )
+}
+
+// ── RelationOverview ──
+
+function RelationOverview() {
+  const tokens = useReaderStore((s) => s.tokens)
+  const relationObjects = useReaderStore((s) => s.relation_objects)
+  const relations = useReaderStore((s) => s.relations)
+  const setSelectedToken = useReaderStore((s) => s.setSelectedToken)
+
+  const isPredefined = (t: string) => (RELATION_TYPES as readonly string[]).includes(t)
+
+  const resolveObjectDisplay = (obj: RelationObject): string => {
+    if (obj.token_id) {
+      const t = tokens.find((tok) => tok.id === obj.token_id)
+      return t ? `「${t.text}」` : '(已删除)'
+    }
+    if (obj.text) {
+      const short = obj.text.slice(0, 16)
+      return obj.text.length > 16 ? short + '…' : short
+    }
+    return obj.id.slice(0, 8)
+  }
+
+  const resolveMemberDisplay = (m: RelationMember): string => {
+    if (m.kind === 'object') {
+      const obj = relationObjects.find((ro) => ro.id === m.id)
+      return obj ? resolveObjectDisplay(obj) : '?'
+    }
+    const rel = relations.find((r) => r.id === m.id)
+    if (rel) {
+      const tl = isPredefined(rel.type) ? RELATION_LABELS[rel.type] || rel.type : rel.type
+      return `[${tl}]`
+    }
+    return '?'
+  }
+
+  return (
+    <div className="flex flex-col h-full">
+      <div className="flex items-center justify-between p-4 border-b shrink-0">
+        <div className="font-medium text-lg">关系概览</div>
+      </div>
+      <div className="flex-1 overflow-y-auto p-4">
+        {relations.length === 0 ? (
+          <div className="text-sm text-gray-400 text-center mt-8">
+            暂无关系
+            <br />
+            <span className="text-xs">点击文中分词，将其转为关系对象后创建</span>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {relations.map((rel) => (
+              <div
+                key={rel.id}
+                className="border rounded p-2.5 text-xs hover:bg-gray-50 transition-colors"
+              >
+                <div className="flex items-center gap-1.5 mb-1">
+                  <span className="bg-gray-100 px-1.5 py-0.5 rounded text-gray-700 font-medium">
+                    {isPredefined(rel.type) ? RELATION_LABELS[rel.type] || rel.type : rel.type}
+                  </span>
+                  <span className="text-gray-400">
+                    ({rel.members.length} 个对象)
+                  </span>
+                </div>
+                <div className="text-gray-500 space-x-1">
+                  {rel.members.map((m, i) => (
+                    <span key={i}>
+                      {i > 0 && <span className="text-gray-300 mx-0.5">→</span>}
+                      <span
+                        className={`cursor-pointer hover:text-blue-600 ${
+                          m.kind === 'relation' ? 'text-purple-600' : ''
+                        }`}
+                        onClick={() => {
+                          if (m.kind === 'object') {
+                            const obj = relationObjects.find((ro) => ro.id === m.id)
+                            if (obj?.token_id) setSelectedToken(obj.token_id)
+                          }
+                        }}
+                      >
+                        {resolveMemberDisplay(m)}
+                      </span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )

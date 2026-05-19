@@ -1,6 +1,6 @@
 # 精读 (IntensiveReading)
 
-辅助精读复杂长文本的工具。对文本进行自动分词，支持为每个词定义指代对象和标注样式，并提供分词修正（拆分/合并）功能。
+辅助精读复杂长文本的工具。对文本进行自动分词，支持为分词标注样式类型，并通过关系系统建立分词之间、分词与文本注释之间的语义关联。
 
 ## 技术栈
 
@@ -14,32 +14,30 @@
 ## 项目结构
 
 ```
-├── main.py                  # FastAPI 应用入口
-├── storage.py               # 文件存储层（JSON）
-├── services/tokenizer.py    # jieba 分词服务
-├── routers/documents.py     # API 路由
+├── main.py                     # FastAPI 应用入口
+├── storage.py                  # 文件存储层（含数据迁移逻辑）
+├── services/tokenizer.py       # jieba 分词服务
+├── routers/documents.py        # API 路由
 ├── frontend/
 │   └── src/
-│       ├── types/index.ts       # 类型定义
-│       ├── api/index.ts         # API 请求层
-│       ├── store/index.ts       # Zustand 状态管理
+│       ├── types/index.ts          # 类型定义
+│       ├── api/index.ts            # API 请求层
+│       ├── store/index.ts          # Zustand 状态管理
 │       └── components/
-│           ├── App.tsx           # 路由配置
-│           ├── HomePage.tsx      # 首页（文档列表 + 上传）
-│           ├── ReaderPage.tsx    # 阅读页
-│           ├── Toolbar.tsx       # 工具栏（查看/拆分/合并/保存）
-│           ├── TextCanvas.tsx    # 分词文本渲染
-│           ├── TokenSpan.tsx     # 单个分词组件
-│           ├── TokenPopover.tsx  # 悬浮指代卡片
-│           ├── TokenSplitModal.tsx # 拆分弹窗
-│           └── ReferentEditor.tsx  # 指代编辑器
+│           ├── App.tsx              # 路由配置
+│           ├── HomePage.tsx         # 首页（文档列表 + 上传）
+│           ├── ReaderPage.tsx       # 阅读页
+│           ├── Toolbar.tsx          # 工具栏（保存）
+│           ├── TextCanvas.tsx       # 分词文本渲染
+│           ├── TokenSpan.tsx        # 单个分词组件
+│           └── TokenActionPanel.tsx # 侧边栏（样式/关系/操作）
 ```
 
 ## 快速开始
 
 ```bash
 # 1. 启动后端
-source .venv/bin/activate && python main.py
+uv run python main.py
 # 运行于 http://localhost:8000
 
 # 2. 启动前端（新终端窗口）
@@ -49,30 +47,46 @@ cd frontend && npm run dev
 
 ## 功能
 
-- **自动分词**：上传文本后，后端使用 jieba 进行中文分词
-- **视觉区分**：分词按样式类型以不同下划线颜色展示（默认/关键词/命名实体/未知/标点符号/数字）
-- **指代查看**：hover 分词时弹出悬浮卡片，显示该词的指代目标或注释
-- **指代编辑**：点击分词选中后，可设置文中指代、外部链接或文字注释
-- **分词修正**：
-  - 拆分模式：点击分词，在弹窗中选择拆分位置将一个词拆为两个
-  - 合并模式：依次点击两个相邻分词将其合并
-- **修改保存**：分词和指代修改通过 API 持久化到 JSON 文件
+- **自动分词**：上传文本后，后端使用 jieba 进行中文分词，同一词汇的多次出现合并为一个 Token
+- **样式标注**：分词按样式类型以不同样式展示（default / keyword / entity / unknown / punctuation / number / connector）
+- **关系系统**：
+  - **关系对象（RelationObject）**：将分词转为独立的关系对象，或直接创建文本对象
+  - **关系（Relation）**：从已有关系对象中选择 2 个以上，建立语义关联（指代 / 属于 / 链接 / 注释 / 自定义）
+- **分词修正**：支持按含义拆分、按字符拆分、合并相邻分词
+- **修改持久化**：所有修改通过 API 保存到 JSON 文件
 
 ## 数据模型
 
-数据以 JSON 文件存储在 `data/documents/<id>.json`，每个文件包含文档元数据及所有 Token。
+数据以 JSON 文件存储在 `data/documents/<id>.json`。
 
-### Token
+### Token（分词）
 
-| 字段 | 说明 |
-|---|---|
-| `start_offset` | 在原文中的起始字符位置 |
-| `text` | 分词文本 |
-| `style_type` | 样式类型：`default` / `keyword` / `entity` / `unknown` / `punctuation` / `number` |
-| `ref_type` | 指代类型：`internal` / `external` / `note` |
-| `ref_target_token_id` | 文中指代的目标 token id |
-| `ref_url` | 外部链接 URL |
-| `ref_explanation` | 文字注释 |
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `id` | string | 唯一标识 |
+| `start_offsets` | number[] | 在原文中的所有出现位置 |
+| `text` | string | 分词文本 |
+| `style_type` | string | 样式类型 |
+
+### RelationObject（关系对象）
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `id` | string | 唯一标识 |
+| `token_id` | string\|null | 关联的 Token ID（与 `text` 互斥） |
+| `text` | string\|null | 文本内容（与 `token_id` 互斥） |
+
+> 约束：同一 Token 最多对应一个 RelationObject。
+
+### Relation（关系）
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `id` | string | 唯一标识 |
+| `type` | string | 关系类型：`refers_to` / `belongs_to` / `links_to` / `annotates` / 自定义 |
+| `object_ids` | string[] | 引用的 RelationObject ID 列表（有序，至少 2 个） |
+
+> 关系类型定义对象间的语义。如 `refers_to` 表示 object_ids[0] 指代 object_ids[1]。
 
 ### API
 
@@ -80,40 +94,15 @@ cd frontend && npm run dev
 |---|---|---|
 | `POST` | `/api/documents` | 创建文档（自动分词） |
 | `GET` | `/api/documents` | 文档列表 |
-| `GET` | `/api/documents/:id` | 获取文档及分词 |
-| `PUT` | `/api/documents/:id/tokens` | 批量更新分词 |
-| `PATCH` | `/api/tokens/:id` | 更新单个分词的指代/样式 |
+| `GET` | `/api/documents/:id` | 获取文档完整数据 |
+| `PUT` | `/api/documents/:id` | 保存文档（tokens + relation_objects + relations） |
+| `POST` | `/api/tokens/:id/split` | 拆分指定 Token |
 
-## TODO
+### 数据迁移
 
-### 后端
+存储层包含自动迁移逻辑，按以下顺序执行：
+1. `_migrate_refs_to_relations` — 将旧版 Token 上的 `ref_*` 字段转为独立的 Relation
+2. `_migrate_relations_to_objects` — 将旧版 Relation（source_token_id/target_*）转为 objects 格式
+3. `_migrate_objects_to_top_level` — 将内嵌 objects 提取为顶层 relation_objects 池
 
-- [ ] 分词服务支持自定义词典（用户词典），提升专业术语分词准确度
-- [ ] 支持更多分词器（pkuseg、lac 等）可切换
-- [ ] 添加段落级别的结构信息（标题、列表、代码块）
-- [ ] Token 修改历史记录（undo/redo）
-- [ ] 导出分词和指代数据（JSON/Markdown）
-
-### 前端
-
-- [ ] 拆分/合并操作支持撤销
-- [ ] 支持键盘快捷键（切换模式、撤销、保存）
-- [ ] Token 列表侧边栏（快速定位和跳转）
-- [ ] 指代关系可视化（箭头/连线标注文中指代）
-- [ ] 暗色主题
-- [ ] 响应式布局（移动端适配）
-- [ ] 批量修改样式类型（多选后统一设置）
-
-### 分词与 NLP
-
-- [ ] 自动识别标点符号并标记为 `punctuation` 样式
-- [ ] 自动识别数字并标记为 `number` 样式
-- [ ] 自动提取命名实体（人名、地名、机构名）并标记为 `entity` 样式
-- [ ] 支持英文文本分词
-
-### 工程
-
-- [ ] 前端单元测试
-- [ ] 后端 API 测试
-- [ ] CI/CD 配置
-- [ ] Docker 容器化部署
+迁移在每次读取文档时自动执行，无需手动干预。

@@ -1,4 +1,4 @@
-import type { Document, DocumentListItem, Token } from '../types'
+import type { Document, DocumentListItem, Relation, RelationObject, Token } from '../types'
 
 const BASE = '/api'
 
@@ -32,23 +32,15 @@ export async function createDocument(
   })
 }
 
-export async function saveTokens(
+export async function saveDocument(
   documentId: string,
-  tokens: Token[]
-): Promise<Token[]> {
-  return request(`/documents/${documentId}/tokens`, {
+  tokens: Token[],
+  relationObjects: RelationObject[],
+  relations: Relation[]
+): Promise<Document> {
+  return request(`/documents/${documentId}`, {
     method: 'PUT',
-    body: JSON.stringify({ tokens }),
-  })
-}
-
-export async function updateToken(
-  tokenId: string,
-  data: Partial<Token>
-): Promise<Token> {
-  return request(`/tokens/${tokenId}`, {
-    method: 'PATCH',
-    body: JSON.stringify(data),
+    body: JSON.stringify({ tokens, relation_objects: relationObjects, relations }),
   })
 }
 

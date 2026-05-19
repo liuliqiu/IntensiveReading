@@ -27,19 +27,85 @@ def merge_tokens(raw_tokens: list[dict]) -> list[dict]:
                 "start_offsets": [],
                 "text": key,
                 "style_type": t.get("style_type", "default") or "default",
-                "ref_type": None,
-                "ref_target_token_id": None,
-                "ref_url": None,
-                "ref_explanation": None,
             }
             order.append(key)
         existing = groups[key]
         existing["start_offsets"].append(t["start_offset"])
-        if not any(existing.get(f) for f in ["ref_type", "ref_target_token_id", "ref_url", "ref_explanation"]):
-            for f in ["ref_type", "ref_target_token_id", "ref_url", "ref_explanation"]:
-                existing[f] = t.get(f) or None
 
     return [groups[k] for k in order]
+
+
+def _migrate_refs(raw_tokens: list[dict], merged: list[dict]) -> list[dict]:
+    """Build relations from old ref_* fields on raw tokens."""
+    relations: list[dict] = []
+    # Map old token start_offset+text -> new merged token id
+    offset_map: dict[tuple[int, str], str] = {}
+    for t in merged:
+        for off in t["start_offsets"]:
+            offset_map[(off, t["text"])] = t["id"]
+
+    # Also need reverse: old token id -> new token id
+    old_id_to_new: dict[str, str] = {}
+    for t in raw_tokens:
+        off = t["start_offset"]
+        text = t["text"]
+        if (off, text) in offset_map:
+            old_id_to_new[t.get("_orig_id", "")] = offset_map[(off, text)]
+
+    # Collect ref targets from old-style ref_target_token_id
+    ref_targets = []
+    for t in raw_tokens:
+        rt = t.get("ref_type")
+        if rt == "internal" and t.get("ref_target_token_id"):
+            ref_targets.append({
+                "old_source_id": t.get("_orig_id"),
+                "old_target_id": t["ref_target_token_id"],
+            })
+
+    for t in raw_tokens:
+        ref_type = t.get("ref_type")
+        if not ref_type:
+            continue
+        rel: dict = {
+            "id": str(uuid.uuid4()),
+            "direction": "->",
+        }
+        off = t["start_offset"]
+        text = t["text"]
+        source_id = offset_map.get((off, text))
+        if not source_id:
+            continue
+        rel["source_token_id"] = source_id
+
+        if ref_type == "internal" and t.get("ref_target_token_id"):
+            rel["type"] = "refers_to"
+            # Find target in offset_map by old target id
+            target_id = _resolve_target_id(t["ref_target_token_id"], raw_tokens, offset_map)
+            if target_id:
+                rel["target_token_id"] = target_id
+            else:
+                continue
+        elif ref_type == "external" and t.get("ref_url"):
+            rel["type"] = "links_to"
+            rel["target_url"] = t["ref_url"]
+        elif ref_type == "note" and t.get("ref_explanation"):
+            rel["type"] = "annotates"
+            rel["target_explanation"] = t["ref_explanation"]
+        else:
+            continue
+
+        relations.append(rel)
+
+    return relations
+
+
+def _resolve_target_id(old_target_id: str, raw_tokens: list[dict], offset_map: dict) -> str | None:
+    for t in raw_tokens:
+        if t.get("_orig_id") == old_target_id:
+            off = t["start_offset"]
+            text = t["text"]
+            return offset_map.get((off, text))
+    return None
 
 
 os.makedirs(DATA_DIR, exist_ok=True)
@@ -59,6 +125,7 @@ if os.path.exists(DB_PATH):
         raw = []
         for t in tokens:
             raw.append({
+                "_orig_id": t["id"],
                 "start_offset": t["start_offset"],
                 "text": t["text"],
                 "style_type": t["style_type"] or "default",
@@ -69,6 +136,7 @@ if os.path.exists(DB_PATH):
             })
 
         merged = merge_tokens(raw)
+        relations = _migrate_refs(raw, merged)
 
         doc_data = {
             "id": doc_id,
@@ -77,6 +145,7 @@ if os.path.exists(DB_PATH):
             "created_at": _to_iso(doc["created_at"]) if doc["created_at"] else "",
             "updated_at": _to_iso(doc["updated_at"]) if doc["updated_at"] else "",
             "tokens": merged,
+            "relations": relations,
         }
 
         filepath = os.path.join(DATA_DIR, f"{doc_id}.json")
@@ -110,6 +179,7 @@ if os.path.exists(DATA_DIR):
         raw = []
         for t in tokens:
             raw.append({
+                "_orig_id": t.get("id", ""),
                 "start_offset": t["start_offset"],
                 "text": t["text"],
                 "style_type": t.get("style_type", "default") or "default",
@@ -119,7 +189,11 @@ if os.path.exists(DATA_DIR):
                 "ref_explanation": t.get("ref_explanation"),
             })
 
-        doc["tokens"] = merge_tokens(raw)
+        merged = merge_tokens(raw)
+        relations = _migrate_refs(raw, merged)
+
+        doc["tokens"] = merged
+        doc["relations"] = relations
         with open(filepath, "w", encoding="utf-8") as f:
             json.dump(doc, f, ensure_ascii=False, indent=2)
 

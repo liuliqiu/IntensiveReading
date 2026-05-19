@@ -1,8 +1,7 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from storage import (
-    get_document, list_documents, save_document,
-    update_token, split_token, find_token_doc_id, gen_id, utcnow,
+    get_document, list_documents, save_document, gen_id, utcnow,
 )
 from services.tokenizer import tokenize_and_merge
 
@@ -19,25 +18,41 @@ class TokenSchema(BaseModel):
     start_offsets: list[int]
     text: str
     style_type: str = "default"
-    ref_type: str | None = None
-    ref_target_token_id: str | None = None
-    ref_url: str | None = None
-    ref_explanation: str | None = None
 
     class Config:
         from_attributes = True
 
 
-class TokenUpdate(BaseModel):
-    style_type: str | None = None
-    ref_type: str | None = None
-    ref_target_token_id: str | None = None
-    ref_url: str | None = None
-    ref_explanation: str | None = None
+class RelationObjectSchema(BaseModel):
+    id: str
+    token_id: str | None = None
+    text: str | None = None
+
+    class Config:
+        from_attributes = True
 
 
-class TokensUpdate(BaseModel):
+class MemberSchema(BaseModel):
+    kind: str
+    id: str
+
+    class Config:
+        from_attributes = True
+
+
+class RelationSchema(BaseModel):
+    id: str
+    type: str
+    members: list[MemberSchema]
+
+    class Config:
+        from_attributes = True
+
+
+class DocumentUpdate(BaseModel):
     tokens: list[TokenSchema]
+    relation_objects: list[RelationObjectSchema] = []
+    relations: list[RelationSchema] = []
 
 
 class TokenSplitRequest(BaseModel):
@@ -51,6 +66,8 @@ class DocumentOut(BaseModel):
     created_at: str
     updated_at: str
     tokens: list[TokenSchema]
+    relation_objects: list[RelationObjectSchema] = []
+    relations: list[RelationSchema] = []
 
     class Config:
         from_attributes = True
@@ -111,13 +128,11 @@ def create_document(doc: DocumentCreate):
                 "start_offsets": t["start_offsets"],
                 "text": t["text"],
                 "style_type": t["style_type"],
-                "ref_type": None,
-                "ref_target_token_id": None,
-                "ref_url": None,
-                "ref_explanation": None,
             }
             for t in merged_tokens
         ],
+        "relations": [],
+        "relation_objects": [],
     }
 
     save_document(document)
@@ -147,8 +162,8 @@ def get_document_route(doc_id: str):
     return _doc_to_out(doc)
 
 
-@router.put("/documents/{doc_id}/tokens", response_model=list[TokenSchema])
-def update_tokens(doc_id: str, body: TokensUpdate):
+@router.put("/documents/{doc_id}", response_model=DocumentOut)
+def update_document(doc_id: str, body: DocumentUpdate):
     doc = get_document(doc_id)
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -156,26 +171,18 @@ def update_tokens(doc_id: str, body: TokensUpdate):
     _validate_tokens_cover_text(body.tokens, doc["original_text"])
 
     doc["tokens"] = [t.model_dump() for t in body.tokens]
+    doc["relation_objects"] = [ro.model_dump() for ro in body.relation_objects]
+    doc["relations"] = [r.model_dump() for r in body.relations]
     doc["updated_at"] = utcnow()
     save_document(doc)
 
     updated = get_document(doc_id)
-    return [TokenSchema(**t) for t in updated["tokens"]]
-
-
-@router.patch("/tokens/{token_id}", response_model=TokenSchema)
-def update_token_route(token_id: str, body: TokenUpdate):
-    doc_id = find_token_doc_id(token_id)
-    if not doc_id:
-        raise HTTPException(status_code=404, detail="Token not found")
-
-    update_data = body.model_dump(exclude_unset=True)
-    updated = update_token(doc_id, token_id, update_data)
-    return TokenSchema(**updated)
+    return _doc_to_out(updated)
 
 
 @router.post("/tokens/{token_id}/split", response_model=DocumentOut)
 def split_token_route(token_id: str, body: TokenSplitRequest):
+    from storage import split_token, find_token_doc_id
     doc_id = find_token_doc_id(token_id)
     if not doc_id:
         raise HTTPException(status_code=404, detail="Token not found")
@@ -198,5 +205,7 @@ def _doc_to_out(doc: dict) -> DocumentOut:
         original_text=doc["original_text"],
         created_at=doc["created_at"],
         updated_at=doc["updated_at"],
-        tokens=[TokenSchema(**t) for t in doc["tokens"]],
+        tokens=[TokenSchema(**{k: v for k, v in t.items() if k != "ref_type"}) for t in doc["tokens"]],
+        relation_objects=[RelationObjectSchema(**ro) for ro in doc.get("relation_objects", [])],
+        relations=[RelationSchema(**r) for r in doc.get("relations", [])],
     )
