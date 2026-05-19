@@ -109,6 +109,15 @@ class ExplainRequest(BaseModel):
     context_window: int = 200
 
 
+class ScrapeRequest(BaseModel):
+    url: str
+
+
+class ScrapeResponse(BaseModel):
+    title: str
+    content: str
+
+
 def _validate_tokens_cover_text(tokens: list[TokenSchema], original_text: str):
     positions = []
     for t in tokens:
@@ -444,6 +453,18 @@ async def explain_object(doc_id: str, object_id: str, body: ExplainRequest = Exp
 
     updated = get_document(doc_id)
     return _doc_to_out(updated)
+
+
+@router.post("/scrape", response_model=ScrapeResponse)
+async def scrape_url_route(body: ScrapeRequest):
+    from services.scraper import scrape_url
+    try:
+        title, content = await scrape_url(body.url)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"抓取失败：{e}")
+    return ScrapeResponse(title=title, content=content)
 
 
 def _get_surrounding_context(text: str, term: str, window: int) -> str:

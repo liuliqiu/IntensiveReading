@@ -94,6 +94,13 @@ export async function analyzeConcepts(layerId: string): Promise<Document> {
   return request(`/layers/${layerId}/concepts`, { method: 'POST' })
 }
 
+export async function scrapeUrl(url: string): Promise<{ title: string; content: string }> {
+  return request('/scrape', {
+    method: 'POST',
+    body: JSON.stringify({ url }),
+  })
+}
+
 export async function explainObject(
   documentId: string,
   objectId: string,

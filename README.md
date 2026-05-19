@@ -6,7 +6,7 @@
 
 | 层 | 技术 |
 |---|---|
-| 后端 | Python 3.12, FastAPI, jieba, openai |
+| 后端 | Python 3.12, FastAPI, jieba, openai, trafilatura, playwright, beautifulsoup4 |
 | 前端 | TypeScript, React 19, Vite, Tailwind CSS, Zustand |
 | 存储 | JSON 文件 |
 | AI | DeepSeek（兼容 OpenAI 协议，可替换） |
@@ -19,7 +19,8 @@
 ├── storage.py                    # 文件存储层（含数据迁移逻辑）
 ├── services/
 │   ├── tokenizer.py              # jieba 分词 + 基于词汇表的分词
-│   └── ai.py                     # AsyncOpenAI 客户端（摘要/解释）
+│   ├── ai.py                     # AsyncOpenAI 客户端（摘要/解释/概念分析）
+│   └── scraper.py                # 网页抓取（静态 + JS 渲染）
 ├── routers/documents.py          # API 路由（文档 + 文本层 + AI 操作）
 ├── frontend/
 │   └── src/
@@ -41,6 +42,8 @@
 
 ```bash
 # 0. 配置 AI API Key（可选，不配置则无法使用摘要和解释功能）
+# 网页抓取需要系统安装 Google Chrome（JS 渲染页面的兜底方案，静态页面无需）
+# macOS 上通常已预装，无需额外操作
 export OPENAI_API_KEY=sk-your-deepseek-key
 #默认为 DeepSeek，如需使用 OpenAI，还需设置：
 #export OPENAI_BASE_URL=https://api.openai.com/v1
@@ -67,6 +70,7 @@ cd frontend && npm run dev
 - **AI 摘要**：点击「生成摘要」按钮，AI 对原文进行总结。摘要使用原文的词汇表进行分词（最大正向匹配），与原文共用同一套 Token ID。新出现的词汇自动加入原文词汇表。原文中对词汇的合并操作会自动反映到摘要中
 - **AI 解释**：选中一个已转为关系对象的词汇，点击「AI 解释」，AI 会结合上下文对该术语在文中的含义进行解释，生成的关系存储在原文关系中
 - **AI 概念分析**：在摘要视图下，点击「分析概念关系」按钮，AI 自动提取摘要中的关键概念及其语义关系，以结构化列表形式展示（因果/包含/对比/互补/递进/描述）。每个概念的描述也作为独立的关系对象存储，通过 `explains` 关系与概念名关联
+- **网页抓取**：首页支持通过 URL 导入文本。输入网页链接，自动提取标题和正文。对静态页面使用 trafilatura 快速提取，对 JS 动态渲染页面（SPA）自动切换到 Playwright + 系统 Chrome 渲染后再提取
 
 ## 架构说明：统一词汇与关系
 
@@ -193,6 +197,14 @@ data/
 | `POST` | `/api/layers/:lid/summarize` | 对 type=summary 的层执行 AI 摘要（自动分词并复用词汇表） |
 | `POST` | `/api/documents/:did/objects/:oid/explain` | 对指定关系对象执行 AI 解释 |
 | `POST` | `/api/layers/:lid/concepts` | 对 type=summary 的层执行 AI 概念分析 |
+
+#### 网页抓取
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| `POST` | `/api/scrape` | 抓取网页标题和正文（支持静态页面和 JS 渲染页面） |
+
+> 静态页面使用 trafilatura 快速提取。JS 动态渲染的 SPA 页面会自动切换到 Playwright 无头浏览器（需要系统安装 Google Chrome）。
 
 ### 数据迁移
 
