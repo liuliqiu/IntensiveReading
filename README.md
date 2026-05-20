@@ -17,6 +17,8 @@
 ```
 ├── main.py                       # FastAPI 应用入口
 ├── storage.py                    # 文件存储层（含数据迁移逻辑）
+├── opencode.json                 # opencode 项目配置
+├── AGENTS.md                     # opencode 行为约定
 ├── services/
 │   ├── tokenizer.py              # jieba 分词 + 概念感知分词 + 词汇表分词
 │   ├── ai.py                     # AsyncOpenAI 客户端（摘要/解释/概念分析）

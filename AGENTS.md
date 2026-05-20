@@ -1,0 +1,3 @@
+- 实现功能后同步更新 README.md 中相关内容
+- 完成后提交代码（先检查 git status 和 git diff）
+- 修改 services/ 或 routers/ 下的后端代码时，补充或更新 tests/ 中的单元测试，并运行 `uv run pytest tests/ -v` 验证通过
