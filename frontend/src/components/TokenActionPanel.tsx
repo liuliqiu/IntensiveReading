@@ -55,6 +55,20 @@ function TokenDetail({ token, isLayerView }: { token: Token; isLayerView: boolea
     [relations, tokenRelationObject]
   )
 
+  const relatedObjectIds = useMemo(() => {
+    if (!tokenRelationObject) return new Set<string>()
+    const ids = new Set<string>()
+    for (const rel of relations) {
+      const hasCurrent = rel.members.some((m) => m.id === tokenRelationObject.id)
+      if (hasCurrent) {
+        for (const m of rel.members) {
+          if (m.kind === 'object') ids.add(m.id)
+        }
+      }
+    }
+    return ids
+  }, [relations, tokenRelationObject])
+
   const [styleType, setStyleType] = useState(token.style_type)
 
   const [editingRelId, setEditingRelId] = useState<string | null>(null)
@@ -358,8 +372,28 @@ function TokenDetail({ token, isLayerView }: { token: Token; isLayerView: boolea
             </button>
           )}
 
+          {tokenRelationObject && relationObjects
+            .filter((ro) => ro.token_id && ro.id !== tokenRelationObject.id && relatedObjectIds.has(ro.id))
+            .map((ro) => {
+              const t = tokens.find((tok) => tok.id === ro.token_id)
+              return (
+                <div key={ro.id} className="border rounded p-2 text-xs flex items-center justify-between gap-2">
+                  <button
+                    onClick={() => {
+                      if (isLayerView) { setLayerSelectedToken(ro.token_id!) }
+                      else { setSelectedToken(ro.token_id!) }
+                    }}
+                    className="text-blue-600 hover:text-blue-800 truncate text-left"
+                  >
+                    <span className="text-gray-400">分词 </span>
+                    「{t?.text || '(已删除)'}」
+                  </button>
+                </div>
+              )
+            })}
+
           {relationObjects
-            .filter((ro) => !ro.token_id)
+            .filter((ro) => !ro.token_id && (tokenRelationObject ? relatedObjectIds.has(ro.id) : true))
             .map((ro) => {
               const refCount = relations.filter((r) => r.members.some((m) => m.id === ro.id)).length
               return (
@@ -600,9 +634,6 @@ function RelationOverview() {
   const relationObjects = useReaderStore((s) => s.relation_objects)
   const relations = useReaderStore((s) => s.relations)
   const setSelectedToken = useReaderStore((s) => s.setSelectedToken)
-  const layerTokens = useReaderStore((s) => s.layerTokens)
-  const viewMode = useReaderStore((s) => s.viewMode)
-
   const isPredefined = (t: string) => (RELATION_TYPES as readonly string[]).includes(t)
 
   const resolveObjectDisplay = (obj: RelationObject, tkns: Token[]): string => {

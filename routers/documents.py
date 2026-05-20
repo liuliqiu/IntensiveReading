@@ -6,6 +6,20 @@ from storage import (
 )
 from services.tokenizer import tokenize_and_merge, tokenize_with_vocabulary, tokenize_with_concepts
 
+
+def _bind_concept_token_ids(doc: dict) -> None:
+    tokens = doc.get("tokens", [])
+    bound = {ro["token_id"] for ro in doc.get("relation_objects", []) if ro.get("token_id")}
+    for ro in doc.get("relation_objects", []):
+        if ro.get("token_id") or not ro.get("text"):
+            continue
+        for t in tokens:
+            if t["text"] == ro["text"] and t["id"] not in bound:
+                ro["token_id"] = t["id"]
+                bound.add(t["id"])
+                break
+
+
 router = APIRouter(prefix="/api", tags=["documents"])
 
 
@@ -263,6 +277,7 @@ async def process_document(doc: DocumentCreate):
 
     doc_tokens = tokenize_with_concepts(doc.original_text, concept_names)
     document["tokens"] = doc_tokens
+    _bind_concept_token_ids(document)
     document["updated_at"] = utcnow()
     save_document(document)
 
@@ -508,6 +523,7 @@ async def analyze_layer_concepts(layer_id: str):
             ],
         })
 
+    _bind_concept_token_ids(doc)
     doc["updated_at"] = utcnow()
     save_document(doc)
 
