@@ -4,7 +4,7 @@ from storage import (
     get_document, list_documents, save_document, gen_id, utcnow,
     get_layer, list_layers, save_layer, delete_layer,
 )
-from services.tokenizer import tokenize_and_merge, tokenize_with_vocabulary
+from services.tokenizer import tokenize_and_merge, tokenize_with_vocabulary, tokenize_with_concepts
 
 router = APIRouter(prefix="/api", tags=["documents"])
 
@@ -118,6 +118,11 @@ class ScrapeResponse(BaseModel):
     content: str
 
 
+class DocumentProcessResponse(BaseModel):
+    document: DocumentOut
+    summary_layer: TextLayerOut
+
+
 def _validate_tokens_cover_text(tokens: list[TokenSchema], original_text: str):
     positions = []
     for t in tokens:
@@ -174,6 +179,114 @@ def create_document(doc: DocumentCreate):
 
     save_document(document)
     return _doc_to_out(document)
+
+
+@router.post("/documents/process", response_model=DocumentProcessResponse)
+async def process_document(doc: DocumentCreate):
+    doc_id = gen_id()
+    now = utcnow()
+
+    document = {
+        "id": doc_id,
+        "title": doc.title,
+        "original_text": doc.original_text,
+        "created_at": now,
+        "updated_at": now,
+        "tokens": [],
+        "relations": [],
+        "relation_objects": [],
+    }
+    save_document(document)
+
+    layer_id = gen_id()
+    layer = {
+        "id": layer_id,
+        "document_id": doc_id,
+        "type": "summary",
+        "text": "",
+        "tokens": [],
+        "created_at": now,
+        "updated_at": now,
+    }
+    save_layer(layer)
+
+    from services.ai import summarize_text, analyze_concepts
+    summary, _ = await summarize_text(doc.original_text)
+
+    concepts, relationships = await analyze_concepts(summary)
+
+    concept_objects: dict[str, str] = {}
+    concept_names: list[str] = []
+    for c in concepts:
+        obj_id = gen_id()
+        concept_objects[c["text"]] = obj_id
+        concept_names.append(c["text"])
+        document.setdefault("relation_objects", []).append({
+            "id": obj_id,
+            "token_id": None,
+            "text": c["text"],
+            "kind": "ai_concept",
+        })
+
+        description = c.get("description", "")
+        if description:
+            desc_obj_id = gen_id()
+            document.setdefault("relation_objects", []).append({
+                "id": desc_obj_id,
+                "token_id": None,
+                "text": description,
+                "kind": "ai_concept_desc",
+            })
+            document.setdefault("relations", []).append({
+                "id": gen_id(),
+                "type": "explains",
+                "members": [
+                    {"kind": "object", "id": obj_id},
+                    {"kind": "object", "id": desc_obj_id},
+                ],
+            })
+
+    for r in relationships:
+        src_id = concept_objects.get(r.get("source", ""))
+        tgt_id = concept_objects.get(r.get("target", ""))
+        if not src_id or not tgt_id:
+            continue
+        document.setdefault("relations", []).append({
+            "id": gen_id(),
+            "type": r.get("type", ""),
+            "description": r.get("description", ""),
+            "members": [
+                {"kind": "object", "id": src_id},
+                {"kind": "object", "id": tgt_id},
+            ],
+        })
+
+    doc_tokens = tokenize_with_concepts(doc.original_text, concept_names)
+    document["tokens"] = doc_tokens
+    document["updated_at"] = utcnow()
+    save_document(document)
+
+    layer_tokens, new_tokens = tokenize_with_vocabulary(summary, doc_tokens)
+
+    if new_tokens:
+        doc_tokens_by_text: dict[str, dict] = {t["text"]: t for t in document["tokens"]}
+        for nt in new_tokens:
+            if nt["text"] not in doc_tokens_by_text:
+                document["tokens"].append(nt)
+        document["updated_at"] = utcnow()
+        save_document(document)
+
+    layer["text"] = summary
+    layer["tokens"] = layer_tokens
+    layer["updated_at"] = utcnow()
+    save_layer(layer)
+
+    updated_doc = get_document(doc_id)
+    updated_layer = get_layer(layer_id)
+    return DocumentProcessResponse(
+        document=_doc_to_out(updated_doc),
+        summary_layer=_layer_to_out(updated_layer),
+    )
 
 
 @router.get("/documents", response_model=list[DocumentListItem])

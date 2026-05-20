@@ -1,5 +1,6 @@
 import re
 import uuid
+import threading
 import jieba
 
 _PUNCTUATION_RE = re.compile(
@@ -30,6 +31,23 @@ _CONNECTORS: frozenset[str] = frozenset({
     "啊", "吧", "吗", "呢", "哦", "嗯", "呀", "嘛", "哇",
     "便", "即", "可", "能", "该", "既",
 })
+
+
+_jieba_lock = threading.Lock()
+
+
+def _tokenize_with_added_words(text: str, words: set[str], freq: int = 99999) -> list[tuple[str, int, int]]:
+    added: set[str] = set()
+    with _jieba_lock:
+        try:
+            for w in words:
+                if w:
+                    jieba.add_word(w, freq=freq)
+                    added.add(w)
+            return list(jieba.tokenize(text))
+        finally:
+            for w in added:
+                jieba.del_word(w)
 
 
 def _classify_token(word: str) -> str:
@@ -80,88 +98,68 @@ def tokenize_with_vocabulary(text: str, doc_tokens: list[dict]) -> tuple[list[di
     for t in doc_tokens:
         if t["text"] not in vocab:
             vocab[t["text"]] = t
-    vocab_entries = sorted(vocab.values(), key=lambda t: -len(t["text"]))
 
-    result: list[dict] = []
+    results = _tokenize_with_added_words(text, set(vocab.keys()))
+
     result_by_id: dict[str, dict] = {}
     order: list[str] = []
-
     new_tokens: list[dict] = []
 
-    i = 0
-    while i < len(text):
-        matched = None
-        for entry in vocab_entries:
-            if text.startswith(entry["text"], i):
-                matched = entry
-                break
-
-        if matched:
-            tid = matched["id"]
+    for word, start, _end in results:
+        existing = vocab.get(word)
+        if existing:
+            tid = existing["id"]
             if tid not in result_by_id:
-                token_entry = {
+                result_by_id[tid] = {
                     "id": tid,
                     "start_offsets": [],
-                    "text": matched["text"],
-                    "style_type": matched["style_type"],
+                    "text": existing["text"],
+                    "style_type": existing["style_type"],
                 }
-                result_by_id[tid] = token_entry
                 order.append(tid)
-            result_by_id[tid]["start_offsets"].append(i)
-            i += len(matched["text"])
+            result_by_id[tid]["start_offsets"].append(start)
         else:
-            unmatched_start = i
-            unmatched_chars = text[i]
-            i += 1
-            while i < len(text):
-                found = False
-                for entry in vocab_entries:
-                    if text.startswith(entry["text"], i):
-                        found = True
-                        break
-                if found:
-                    break
-                unmatched_chars += text[i]
-                i += 1
+            style = _classify_token(word)
+            new_id = str(uuid.uuid4())
+            if new_id not in result_by_id:
+                result_by_id[new_id] = {
+                    "id": new_id,
+                    "start_offsets": [],
+                    "text": word,
+                    "style_type": style,
+                }
+                order.append(new_id)
+            result_by_id[new_id]["start_offsets"].append(start)
+            new_tokens.append({
+                "id": new_id,
+                "start_offsets": [],
+                "text": word,
+                "style_type": style,
+            })
 
-            jieba_tokens = tokenize_text(unmatched_chars)
-            base_offset = unmatched_start
-            for jt in jieba_tokens:
-                jt_text = jt["text"]
-                jt_off = base_offset + jt["start_offset"]
+    return [result_by_id[k] for k in order], new_tokens
 
-                existing_in_vocab = vocab.get(jt_text)
-                if existing_in_vocab:
-                    tid = existing_in_vocab["id"]
-                    if tid not in result_by_id:
-                        token_entry = {
-                            "id": tid,
-                            "start_offsets": [],
-                            "text": existing_in_vocab["text"],
-                            "style_type": existing_in_vocab["style_type"],
-                        }
-                        result_by_id[tid] = token_entry
-                        order.append(tid)
-                    result_by_id[tid]["start_offsets"].append(jt_off)
-                else:
-                    new_id = str(uuid.uuid4())
-                    new_token = {
-                        "id": new_id,
-                        "start_offsets": [jt_off],
-                        "text": jt_text,
-                        "style_type": _classify_token(jt_text),
-                    }
-                    if new_id not in result_by_id:
-                        result_by_id[new_id] = new_token
-                        order.append(new_id)
-                    else:
-                        result_by_id[new_id]["start_offsets"].append(jt_off)
-                    new_tokens.append({
-                        "id": new_id,
-                        "start_offsets": [],
-                        "text": jt_text,
-                        "style_type": _classify_token(jt_text),
-                    })
 
-    merged_result = [result_by_id[k] for k in order]
-    return merged_result, new_tokens
+def tokenize_with_concepts(text: str, concepts: list[str]) -> list[dict]:
+    words = {c for c in concepts if c}
+    if not words:
+        return tokenize_and_merge(text)
+
+    results = _tokenize_with_added_words(text, words)
+    concept_set = words
+
+    groups: dict[str, dict] = {}
+    order: list[str] = []
+    for word, start, _end in results:
+        style = "keyword" if word in concept_set else _classify_token(word)
+        if word not in groups:
+            groups[word] = {
+                "id": str(uuid.uuid4()),
+                "start_offsets": [],
+                "text": word,
+                "style_type": style,
+            }
+            order.append(word)
+        groups[word]["start_offsets"].append(start)
+
+    return [groups[k] for k in order]

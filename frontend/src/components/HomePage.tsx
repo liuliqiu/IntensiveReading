@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { fetchDocuments, createDocument, scrapeUrl } from '../api'
+import { fetchDocuments, processDocument, scrapeUrl } from '../api'
 import type { DocumentListItem } from '../types'
 
 type InputMode = 'manual' | 'url'
@@ -30,8 +30,8 @@ export default function HomePage() {
     if (!title.trim() || !text.trim()) return
     setCreating(true)
     try {
-      const doc = await createDocument(title.trim(), text.trim())
-      navigate(`/reader/${doc.id}`)
+      const result = await processDocument(title.trim(), text.trim())
+      navigate(`/reader/${result.document.id}`, { state: result })
     } finally {
       setCreating(false)
     }
@@ -122,7 +122,7 @@ export default function HomePage() {
           disabled={creating || !canSubmit}
           className="px-4 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:opacity-50"
         >
-          {creating ? '分词中...' : '提交并分词'}
+          {creating ? '分析中...' : '提交并分析'}
         </button>
       </div>
 

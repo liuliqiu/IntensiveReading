@@ -32,6 +32,21 @@ export async function createDocument(
   })
 }
 
+export interface ProcessDocumentResult {
+  document: Document
+  summary_layer: TextLayer
+}
+
+export async function processDocument(
+  title: string,
+  originalText: string
+): Promise<ProcessDocumentResult> {
+  return request('/documents/process', {
+    method: 'POST',
+    body: JSON.stringify({ title, original_text: originalText }),
+  })
+}
+
 export async function saveDocument(
   documentId: string,
   tokens: Token[],
