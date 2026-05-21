@@ -1,4 +1,4 @@
-import type { Document, DocumentListItem, Relation, RelationObject, TextLayer, Token } from '../types'
+import type { Document, DocumentListItem, Knowledge, TextLayer, Token } from '../types'
 
 const BASE = '/api'
 
@@ -50,13 +50,44 @@ export async function processDocument(
 export async function saveDocument(
   documentId: string,
   tokens: Token[],
-  relationObjects: RelationObject[],
-  relations: Relation[]
 ): Promise<Document> {
   return request(`/documents/${documentId}`, {
     method: 'PUT',
-    body: JSON.stringify({ tokens, relation_objects: relationObjects, relations }),
+    body: JSON.stringify({ tokens }),
   })
+}
+
+export async function fetchKnowledge(): Promise<Knowledge> {
+  return request('/knowledge')
+}
+
+export async function createKnowledgeObject(body: { token_id?: string | null; document_id?: string | null; text?: string | null; kind?: string }): Promise<Knowledge> {
+  return request('/knowledge/objects', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+}
+
+export async function deleteKnowledgeObject(objectId: string): Promise<Knowledge> {
+  return request(`/knowledge/objects/${objectId}`, { method: 'DELETE' })
+}
+
+export async function createKnowledgeRelation(body: { type: string; members: { kind: string; id: string }[]; description?: string }): Promise<Knowledge> {
+  return request('/knowledge/relations', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+}
+
+export async function updateKnowledgeRelation(relationId: string, body: { type?: string; members?: { kind: string; id: string }[]; description?: string }): Promise<Knowledge> {
+  return request(`/knowledge/relations/${relationId}`, {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  })
+}
+
+export async function deleteKnowledgeRelation(relationId: string): Promise<Knowledge> {
+  return request(`/knowledge/relations/${relationId}`, { method: 'DELETE' })
 }
 
 export async function splitTokenByMeaning(

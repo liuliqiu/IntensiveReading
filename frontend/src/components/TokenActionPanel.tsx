@@ -2,7 +2,11 @@ import { useState, useMemo, useCallback } from 'react'
 import type { Relation, RelationMember, RelationObject, Token } from '../types'
 import { STYLE_TYPES, STYLE_LABELS, RELATION_TYPES, RELATION_LABELS } from '../types'
 import { useReaderStore } from '../store'
-import { saveDocument, splitTokenByMeaning, explainObject } from '../api'
+import {
+  saveDocument, splitTokenByMeaning, explainObject,
+  createKnowledgeObject, deleteKnowledgeObject,
+  createKnowledgeRelation, updateKnowledgeRelation, deleteKnowledgeRelation,
+} from '../api'
 
 type OpTab = 'meaning' | 'char' | 'merge'
 
@@ -36,13 +40,10 @@ function TokenDetail({ token, isLayerView }: { token: Token; isLayerView: boolea
   const setSaving = useReaderStore((s) => s.setSaving)
   const setExplaining = useReaderStore((s) => s.setExplaining)
   const updateToken = useReaderStore((s) => s.updateToken)
-  const addRelationObject = useReaderStore((s) => s.addRelationObject)
-  const deleteRelationObject = useReaderStore((s) => s.deleteRelationObject)
-  const addRelation = useReaderStore((s) => s.addRelation)
-  const updateRelation = useReaderStore((s) => s.updateRelation)
-  const deleteRelation = useReaderStore((s) => s.deleteRelation)
   const splitTokenAll = useReaderStore((s) => s.splitTokenAll)
   const mergeAdjacentAll = useReaderStore((s) => s.mergeAdjacentAll)
+  const setRelationObjects = useReaderStore((s) => s.setRelationObjects)
+  const setRelations = useReaderStore((s) => s.setRelations)
   const setDocument = useReaderStore((s) => s.setDocument)
 
   const tokenRelationObject = relationObjects.find((ro) => ro.token_id === token.id)
@@ -107,21 +108,29 @@ function TokenDetail({ token, isLayerView }: { token: Token; isLayerView: boolea
     return [...groups.values()]
   }, [token, tokens])
 
-  const handleConvertToken = () => {
-    if (tokenRelationObject) return
-    addRelationObject({ id: crypto.randomUUID(), token_id: token.id })
+  const handleConvertToken = async () => {
+    if (tokenRelationObject || !document) return
+    const knowledge = await createKnowledgeObject({ token_id: token.id, document_id: document.id })
+    setRelationObjects(knowledge.relation_objects)
+    setRelations(knowledge.relations)
   }
 
-  const handleDeleteTokenObject = () => {
+  const handleDeleteTokenObject = async () => {
     if (!tokenRelationObject) return
-    const refCount = relations.filter((r) => r.members.some((m) => m.id === tokenRelationObject.id)).length
-    if (refCount > 0) { alert(`该对象被 ${refCount} 个关系引用，无法删除`); return }
-    deleteRelationObject(tokenRelationObject.id)
+    try {
+      const knowledge = await deleteKnowledgeObject(tokenRelationObject.id)
+      setRelationObjects(knowledge.relation_objects)
+      setRelations(knowledge.relations)
+    } catch (e) {
+      alert(`删除失败：${e instanceof Error ? e.message : e}`)
+    }
   }
 
-  const handleAddTextObject = () => {
-    if (!textObjValue.trim()) return
-    addRelationObject({ id: crypto.randomUUID(), text: textObjValue.trim() })
+  const handleAddTextObject = async () => {
+    if (!textObjValue.trim() || !document) return
+    const knowledge = await createKnowledgeObject({ text: textObjValue.trim(), document_id: document.id })
+    setRelationObjects(knowledge.relation_objects)
+    setRelations(knowledge.relations)
     setTextObjValue('')
     setShowTextObj(false)
   }
@@ -155,15 +164,23 @@ function TokenDetail({ token, isLayerView }: { token: Token; isLayerView: boolea
   const isMemberSelected = (kind: 'object' | 'relation', id: string) =>
     editMembers.some((m) => m.kind === kind && m.id === id)
 
-  const commitEditing = () => {
+  const commitEditing = async () => {
     const type = editType === '__custom__' ? editCustomType.trim() : editType
     if (!type) return
     if (editMembers.length < 2) return
 
-    if (editingRelId === 'new') {
-      addRelation({ id: crypto.randomUUID(), type, members: editMembers })
-    } else if (editingRelId) {
-      updateRelation(editingRelId, { type, members: editMembers })
+    try {
+      if (editingRelId === 'new') {
+        const knowledge = await createKnowledgeRelation({ type, members: editMembers.map((m) => ({ ...m })) })
+        setRelationObjects(knowledge.relation_objects)
+        setRelations(knowledge.relations)
+      } else if (editingRelId) {
+        const knowledge = await updateKnowledgeRelation(editingRelId, { type, members: editMembers.map((m) => ({ ...m })) })
+        setRelationObjects(knowledge.relation_objects)
+        setRelations(knowledge.relations)
+      }
+    } catch (e) {
+      alert(`操作失败：${e instanceof Error ? e.message : e}`)
     }
     setEditingRelId(null)
   }
@@ -173,12 +190,7 @@ function TokenDetail({ token, isLayerView }: { token: Token; isLayerView: boolea
     setSaving(true)
     try {
       const state = useReaderStore.getState()
-      const saved = await saveDocument(
-        document.id,
-        state.tokens,
-        state.relation_objects,
-        state.relations
-      )
+      const saved = await saveDocument(document.id, state.tokens)
       useReaderStore.setState({
         tokens: saved.tokens,
         relation_objects: saved.relation_objects,
@@ -395,7 +407,6 @@ function TokenDetail({ token, isLayerView }: { token: Token; isLayerView: boolea
           {relationObjects
             .filter((ro) => !ro.token_id && (tokenRelationObject ? relatedObjectIds.has(ro.id) : true))
             .map((ro) => {
-              const refCount = relations.filter((r) => r.members.some((m) => m.id === ro.id)).length
               return (
                 <div key={ro.id} className="border rounded p-2 text-xs flex items-center justify-between gap-2">
                   <span className="text-gray-500 truncate">
@@ -403,9 +414,14 @@ function TokenDetail({ token, isLayerView }: { token: Token; isLayerView: boolea
                     {resolveObjectDisplay(ro)}
                   </span>
                   <button
-                    onClick={() => {
-                      if (refCount > 0) { alert(`该对象被 ${refCount} 个关系引用，无法删除`); return }
-                      deleteRelationObject(ro.id)
+                    onClick={async () => {
+                      try {
+                        const knowledge = await deleteKnowledgeObject(ro.id)
+                        setRelationObjects(knowledge.relation_objects)
+                        setRelations(knowledge.relations)
+                      } catch (e) {
+                        alert(`删除失败：${e instanceof Error ? e.message : e}`)
+                      }
                     }}
                     className="text-gray-400 hover:text-red-500 shrink-0"
                   >✕</button>
@@ -444,10 +460,14 @@ function TokenDetail({ token, isLayerView }: { token: Token; isLayerView: boolea
                   </div>
                   <div className="flex gap-1 shrink-0">
                     <button onClick={() => startEditing(rel)} className="text-gray-400 hover:text-gray-600">编辑</button>
-                    <button onClick={() => {
-                      const refCount = relations.filter((r) => r.id !== rel.id && r.members.some((m) => m.kind === 'relation' && m.id === rel.id)).length
-                      if (refCount > 0) { alert(`该关系被 ${refCount} 个关系引用，无法删除`); return }
-                      deleteRelation(rel.id)
+                    <button onClick={async () => {
+                      try {
+                        const knowledge = await deleteKnowledgeRelation(rel.id)
+                        setRelationObjects(knowledge.relation_objects)
+                        setRelations(knowledge.relations)
+                      } catch (e) {
+                        alert(`删除失败：${e instanceof Error ? e.message : e}`)
+                      }
                     }} className="text-red-400 hover:text-red-600">删除</button>
                   </div>
                 </div>
@@ -630,11 +650,24 @@ function TokenDetail({ token, isLayerView }: { token: Token; isLayerView: boolea
 }
 
 function RelationOverview() {
+  const document = useReaderStore((s) => s.document)
   const tokens = useReaderStore((s) => s.tokens)
   const relationObjects = useReaderStore((s) => s.relation_objects)
   const relations = useReaderStore((s) => s.relations)
   const setSelectedToken = useReaderStore((s) => s.setSelectedToken)
   const isPredefined = (t: string) => (RELATION_TYPES as readonly string[]).includes(t)
+
+  const docRelations = useMemo(() => {
+    if (!document) return relations
+    const docId = document.id
+    return relations.filter((rel) =>
+      rel.members.some((m) => {
+        if (m.kind !== 'object') return false
+        const obj = relationObjects.find((ro) => ro.id === m.id)
+        return obj && (obj.document_id === docId || obj.document_id === null)
+      })
+    )
+  }, [relations, relationObjects, document])
 
   const resolveObjectDisplay = (obj: RelationObject, tkns: Token[]): string => {
     if (obj.token_id) {
@@ -667,7 +700,7 @@ function RelationOverview() {
         <div className="font-medium text-lg">关系概览</div>
       </div>
       <div className="flex-1 overflow-y-auto p-4">
-        {relations.length === 0 ? (
+        {docRelations.length === 0 ? (
           <div className="text-sm text-gray-400 text-center mt-8">
             暂无关系
             <br />
@@ -675,7 +708,7 @@ function RelationOverview() {
           </div>
         ) : (
           <div className="space-y-2">
-            {relations.map((rel) => (
+            {docRelations.map((rel) => (
               <div key={rel.id} className="border rounded p-2.5 text-xs hover:bg-gray-50 transition-colors">
                 <div className="flex items-center gap-1.5 mb-1">
                   <span className="bg-gray-100 px-1.5 py-0.5 rounded text-gray-700 font-medium">

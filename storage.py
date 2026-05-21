@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data", "documents")
 LAYERS_DIR = os.path.join(os.path.dirname(__file__), "data", "layers")
+KNOWLEDGE_PATH = os.path.join(os.path.dirname(__file__), "data", "knowledge.json")
 
 _lock = threading.RLock()
 
@@ -13,6 +14,7 @@ _lock = threading.RLock()
 def init():
     os.makedirs(DATA_DIR, exist_ok=True)
     os.makedirs(LAYERS_DIR, exist_ok=True)
+    _migrate_docs_to_knowledge()
 
 
 def gen_id() -> str:
@@ -206,6 +208,54 @@ def _migrate_objects_add_kind(doc: dict) -> dict:
     return doc
 
 
+def get_knowledge() -> dict:
+    with _lock:
+        if not os.path.exists(KNOWLEDGE_PATH):
+            return {"relation_objects": [], "relations": []}
+        with open(KNOWLEDGE_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+
+
+def save_knowledge(data: dict):
+    with _lock:
+        with open(KNOWLEDGE_PATH, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+def _migrate_docs_to_knowledge():
+    knowledge = get_knowledge()
+    if knowledge.get("relation_objects") or knowledge.get("relations"):
+        return
+
+    if not os.path.exists(DATA_DIR):
+        save_knowledge({"relation_objects": [], "relations": []})
+        return
+
+    all_objects: list[dict] = []
+    all_relations: list[dict] = []
+
+    for filename in sorted(os.listdir(DATA_DIR)):
+        if not filename.endswith(".json"):
+            continue
+        doc_id = filename[:-5]
+        doc = _read_doc(doc_id)
+        if not doc:
+            continue
+
+        for ro in doc.get("relation_objects", []):
+            ro["document_id"] = doc["id"]
+            all_objects.append(ro)
+
+        for r in doc.get("relations", []):
+            all_relations.append(r)
+
+        doc["relation_objects"] = []
+        doc["relations"] = []
+        _write_doc(doc)
+
+    save_knowledge({"relation_objects": all_objects, "relations": all_relations})
+
+
 def get_document(doc_id: str) -> dict | None:
     with _lock:
         doc = _read_doc(doc_id)
@@ -275,19 +325,19 @@ def split_token(doc_id: str, token_id: str, offsets_to_move: list[int]) -> dict 
         insert_idx = doc["tokens"].index(target) + 1
         doc["tokens"].insert(insert_idx, new_token)
 
-        # Remove relations and objects containing the old token (cascade through references)
+        # Remove knowledge objects/relations containing the old token (cascade)
+        knowledge = get_knowledge()
         stale_obj_ids: set[str] = set()
-        for ro in doc.get("relation_objects", []):
+        for ro in knowledge.get("relation_objects", []):
             if ro.get("token_id") == token_id:
                 stale_obj_ids.add(ro["id"])
-        doc["relation_objects"] = [
-            ro for ro in doc.get("relation_objects", [])
+        knowledge["relation_objects"] = [
+            ro for ro in knowledge.get("relation_objects", [])
             if ro["id"] not in stale_obj_ids
         ]
 
-        # Cascade: find all relations referencing stale objects or stale relations
         stale_rel_ids: set[str] = set()
-        relations = doc.get("relations", [])
+        relations = knowledge.get("relations", [])
         while True:
             new_stale: set[str] = set()
             for r in relations:
@@ -304,7 +354,8 @@ def split_token(doc_id: str, token_id: str, offsets_to_move: list[int]) -> dict 
                 break
             stale_rel_ids.update(new_stale)
 
-        doc["relations"] = [r for r in relations if r["id"] not in stale_rel_ids]
+        knowledge["relations"] = [r for r in relations if r["id"] not in stale_rel_ids]
+        save_knowledge(knowledge)
 
         doc["updated_at"] = utcnow()
         _write_doc(doc)

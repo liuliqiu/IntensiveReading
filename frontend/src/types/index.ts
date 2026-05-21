@@ -7,9 +7,15 @@ export interface Token {
 
 export interface RelationObject {
   id: string
-  token_id?: string
-  text?: string
-  kind?: string
+  token_id?: string | null
+  document_id?: string | null
+  text?: string | null
+  kind?: string | null
+}
+
+export interface Knowledge {
+  relation_objects: RelationObject[]
+  relations: Relation[]
 }
 
 export interface RelationMember {
