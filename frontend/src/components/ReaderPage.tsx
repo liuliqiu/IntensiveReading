@@ -77,6 +77,16 @@ export default function ReaderPage() {
     <div className="h-screen flex overflow-hidden bg-gray-50">
       <div className="flex-1 flex flex-col overflow-hidden transition-all duration-300">
         <Toolbar />
+        {document.source_url && (
+          <a
+            href={document.source_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="block px-4 py-1 text-xs text-blue-500 hover:text-blue-700 bg-blue-50 border-b truncate"
+          >
+            {document.source_url}
+          </a>
+        )}
         {viewMode === 'layer' ? (
           <div className="flex-1 overflow-y-auto">
             <SummaryCanvas />

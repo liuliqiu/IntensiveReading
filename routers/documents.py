@@ -27,6 +27,7 @@ router = APIRouter(prefix="/api", tags=["documents"])
 class DocumentCreate(BaseModel):
     title: str
     original_text: str
+    source_url: str = ""
 
 
 class TokenSchema(BaseModel):
@@ -79,6 +80,7 @@ class DocumentOut(BaseModel):
     id: str
     title: str
     original_text: str
+    source_url: str = ""
     created_at: str
     updated_at: str
     tokens: list[TokenSchema]
@@ -175,6 +177,7 @@ def create_document(doc: DocumentCreate):
         "id": doc_id,
         "title": doc.title,
         "original_text": doc.original_text,
+        "source_url": doc.source_url,
         "created_at": now,
         "updated_at": now,
         "tokens": [
@@ -201,6 +204,7 @@ async def process_document(doc: DocumentCreate):
         "id": doc_id,
         "title": doc.title,
         "original_text": doc.original_text,
+        "source_url": doc.source_url,
         "created_at": now,
         "updated_at": now,
         "tokens": [],
@@ -753,6 +757,7 @@ def _doc_to_out(doc: dict) -> DocumentOut:
         id=doc["id"],
         title=doc["title"],
         original_text=doc["original_text"],
+        source_url=doc.get("source_url", ""),
         created_at=doc["created_at"],
         updated_at=doc["updated_at"],
         tokens=[TokenSchema(**{k: v for k, v in t.items() if k != "ref_type"}) for t in doc["tokens"]],

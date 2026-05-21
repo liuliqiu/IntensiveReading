@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { fetchDocuments, processDocument, scrapeUrl } from '../api'
 import type { DocumentListItem } from '../types'
@@ -26,11 +26,13 @@ export default function HomePage() {
       .finally(() => setLoading(false))
   }, [])
 
+  const sourceUrlRef = useRef('')
+
   const handleCreate = async () => {
     if (!title.trim() || !text.trim()) return
     setCreating(true)
     try {
-      const result = await processDocument(title.trim(), text.trim())
+      const result = await processDocument(title.trim(), text.trim(), sourceUrlRef.current)
       navigate(`/reader/${result.document.id}`, { state: result })
     } finally {
       setCreating(false)
@@ -44,6 +46,7 @@ export default function HomePage() {
       const result = await scrapeUrl(url.trim())
       setTitle(result.title)
       setText(result.content)
+      sourceUrlRef.current = url.trim()
     } catch (e) {
       alert(`抓取失败：${e instanceof Error ? e.message : e}`)
     } finally {

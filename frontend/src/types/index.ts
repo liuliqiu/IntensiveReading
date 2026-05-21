@@ -40,6 +40,7 @@ export interface Document {
   id: string
   title: string
   original_text: string
+  source_url?: string
   tokens: Token[]
   relation_objects: RelationObject[]
   relations: Relation[]

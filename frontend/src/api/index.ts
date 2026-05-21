@@ -24,11 +24,12 @@ export async function fetchDocument(id: string): Promise<Document> {
 
 export async function createDocument(
   title: string,
-  originalText: string
+  originalText: string,
+  sourceUrl: string = '',
 ): Promise<Document> {
   return request('/documents', {
     method: 'POST',
-    body: JSON.stringify({ title, original_text: originalText }),
+    body: JSON.stringify({ title, original_text: originalText, source_url: sourceUrl }),
   })
 }
 
@@ -39,11 +40,12 @@ export interface ProcessDocumentResult {
 
 export async function processDocument(
   title: string,
-  originalText: string
+  originalText: string,
+  sourceUrl: string = '',
 ): Promise<ProcessDocumentResult> {
   return request('/documents/process', {
     method: 'POST',
-    body: JSON.stringify({ title, original_text: originalText }),
+    body: JSON.stringify({ title, original_text: originalText, source_url: sourceUrl }),
   })
 }
 
