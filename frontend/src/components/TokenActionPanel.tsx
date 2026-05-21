@@ -664,7 +664,7 @@ function RelationOverview() {
       rel.members.some((m) => {
         if (m.kind !== 'object') return false
         const obj = relationObjects.find((ro) => ro.id === m.id)
-        return obj && (obj.document_id === docId || obj.document_id === null)
+        return obj?.document_id === docId
       })
     )
   }, [relations, relationObjects, document])
