@@ -76,6 +76,7 @@ cd frontend && npm run dev
 - **关系系统**：
   - **关系对象（RelationObject）**：将分词转为独立的关系对象，或直接创建文本对象。支持手动创建和 AI 解释生成
   - **关系（Relation）**：从已有关系对象中选择 2 个以上，建立语义关联（指代 / 属于 / 链接 / 注释 / 解释 / 自定义）
+  - **跨文档知识共享**：关系对象和关系存储在全局知识库中，所有文档共享同一套知识网络。绑定分词的对象通过 `document_id` 标记来源文档
 - **分词修正**：支持按含义拆分、按字符拆分、合并相邻分词
 - **修改持久化**：所有修改通过 API 保存到 JSON 文件
 - **AI 摘要**：点击「生成摘要」按钮，AI 对原文进行总结。摘要使用原文的词汇表进行分词（最大正向匹配），与原文共用同一套 Token ID。新出现的词汇自动加入原文词汇表。原文中对词汇的合并操作会自动反映到摘要中
@@ -89,7 +90,7 @@ cd frontend && npm run dev
 
 - **词汇表（Vocabulary）**：文档的 `tokens` 是唯一的词汇来源。每个 TextLayer 不拥有自己的 Token，而是引用文档 Token 的 ID，仅存储该 Token 在层文本中的出现位置（`start_offsets`）
 - **词汇表分词**：摘要生成后使用 `tokenize_with_vocabulary()` 分词。该函数将原文 Token 注册为 jieba 自定义词汇，然后切分摘要文本，确保已存在的 Token 复用相同 ID 和样式。新出现的词自动加入文档词汇表
-- **关系共享**：关系（Relation）和关系对象（RelationObject）始终存储在 Document 层级。无论在原文视图还是摘要视图编辑关系，修改的都是同一份数据。在摘要中为词汇建立的关系，等同于在原文中为该词汇建立关系
+- **全局知识库**：关系（Relation）和关系对象（RelationObject）存储在全局的 `knowledge.json` 中，在所有文档间共享。无论在原文视图还是摘要视图编辑关系，修改的都是同一份全局数据。在摘要中为词汇建立的关系，等同于在原文中为该词汇建立关系。绑定具体分词的对象通过 `document_id` 标记来源文档
 - **层扩展性**：TextLayer 的 `type` 字段支持未来扩展为其他类型（如翻译、改写等），所有层都遵循统一词汇模型
 
 ## 数据模型
@@ -98,8 +99,22 @@ cd frontend && npm run dev
 
 ```
 data/
-├── documents/<id>.json    # 文档（原始文本 + 词汇表 + 关系）
-└── layers/<id>.json       # 文本层（文本 + 位置引用）
+├── knowledge.json          # 全局关系对象与关系（跨文档共享）
+├── documents/<id>.json     # 文档（原始文本 + 词汇表）
+└── layers/<id>.json        # 文本层（文本 + 位置引用）
+```
+
+### Knowledge（知识库）
+
+```json
+{
+  "relation_objects": [
+    { "id": "uuid", "token_id": "uuid|null", "document_id": "uuid|null", "text": "文本|null", "kind": "manual" }
+  ],
+  "relations": [
+    { "id": "uuid", "type": "refers_to", "members": [{"kind": "object", "id": "uuid"}] }
+  ]
+}
 ```
 
 ### Document（文档）
@@ -111,12 +126,6 @@ data/
   "original_text": "原文内容…",
   "tokens": [
     { "id": "uuid", "start_offsets": [0, 50], "text": "人工智能", "style_type": "keyword" }
-  ],
-  "relation_objects": [
-    { "id": "uuid", "token_id": "uuid或null", "text": "文本或null", "kind": "manual" }
-  ],
-  "relations": [
-    { "id": "uuid", "type": "refers_to", "members": [{"kind": "object", "id": "uuid"}] }
   ],
   "created_at": "ISO8601",
   "updated_at": "ISO8601"
@@ -156,6 +165,7 @@ data/
 |---|---|---|
 | `id` | string | 唯一标识 |
 | `token_id` | string\|null | 关联的 Token ID（与 `text` 互斥） |
+| `document_id` | string\|null | 来源文档 ID（绑定 Token 时标记所属文档） |
 | `text` | string\|null | 文本内容（与 `token_id` 互斥） |
 | `kind` | string | 来源：`manual` / `ai_explanation` / `ai_summary` / `ai_concept` / `ai_concept_desc` |
 
@@ -189,7 +199,7 @@ data/
 | `POST` | `/api/documents/process` | 创建文档并执行完整处理流程（摘要 + 概念分析 + 概念感知分词） |
 | `GET` | `/api/documents` | 文档列表 |
 | `GET` | `/api/documents/:id` | 获取文档完整数据 |
-| `PUT` | `/api/documents/:id` | 保存文档（tokens + relation_objects + relations） |
+| `PUT` | `/api/documents/:id` | 保存文档（仅 tokens） |
 | `POST` | `/api/tokens/:id/split` | 拆分指定 Token |
 
 #### 文本层
@@ -210,6 +220,17 @@ data/
 | `POST` | `/api/documents/:did/objects/:oid/explain` | 对指定关系对象执行 AI 解释 |
 | `POST` | `/api/layers/:lid/concepts` | 对 type=summary 的层执行 AI 概念分析 |
 
+#### 知识库
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| `GET` | `/api/knowledge` | 返回全局关系对象和关系 |
+| `POST` | `/api/knowledge/objects` | 创建关系对象（接收 `token_id?`、`document_id?`、`text?`、`kind`） |
+| `DELETE` | `/api/knowledge/objects/:id` | 删除关系对象 |
+| `POST` | `/api/knowledge/relations` | 创建关系 |
+| `PUT` | `/api/knowledge/relations/:id` | 编辑关系 |
+| `DELETE` | `/api/knowledge/relations/:id` | 删除关系 |
+
 #### 网页抓取
 
 | 方法 | 路径 | 说明 |
@@ -225,5 +246,6 @@ data/
 2. `_migrate_relations_to_objects` — 将旧版 Relation（source_token_id/target_*）转为 objects 格式
 3. `_migrate_objects_to_top_level` — 将内嵌 objects 提取为顶层 relation_objects 池
 4. `_migrate_objects_add_kind` — 给旧版关系对象补充 `kind: "manual"` 字段
+5. `_migrate_docs_to_knowledge` — 将所有文档中的关系和关系对象迁移到全局 `knowledge.json`
 
 迁移在每次读取文档时自动执行，无需手动干预。
