@@ -15,6 +15,7 @@ def init():
     os.makedirs(DATA_DIR, exist_ok=True)
     os.makedirs(LAYERS_DIR, exist_ok=True)
     _migrate_docs_to_knowledge()
+    _migrate_remove_token_and_doc_id()
 
 
 def gen_id() -> str:
@@ -256,6 +257,105 @@ def _migrate_docs_to_knowledge():
     save_knowledge({"relation_objects": all_objects, "relations": all_relations})
 
 
+def _migrate_remove_token_and_doc_id():
+    knowledge = get_knowledge()
+    objects = knowledge.get("relation_objects", [])
+    relations = knowledge.get("relations", [])
+
+    needs_migration = any(
+        "token_id" in ro or "document_id" in ro
+        for ro in objects
+    )
+    if not needs_migration:
+        return
+
+    all_docs = {}
+    if os.path.exists(DATA_DIR):
+        for filename in sorted(os.listdir(DATA_DIR)):
+            if filename.endswith(".json"):
+                doc_id = filename[:-5]
+                doc = _read_doc(doc_id)
+                if doc:
+                    all_docs[doc_id] = doc
+
+    doc_obj_map: dict[str, str] = {}
+    for doc_id, doc in all_docs.items():
+        obj_id = gen_id()
+        doc_obj_map[doc_id] = obj_id
+        objects.append({
+            "id": obj_id,
+            "text": doc.get("title", ""),
+            "kind": "document",
+            "metadata": {"document_id": doc_id},
+        })
+
+    token_map: dict[str, str] = {}
+    for doc_id, doc in all_docs.items():
+        for t in doc.get("tokens", []):
+            token_map[t["id"]] = t["text"]
+
+    obj_doc_mapping: dict[str, str] = {}
+    for ro in objects:
+        ro_id = ro.get("id", "")
+
+        if ro.get("token_id") and not ro.get("text"):
+            token_text = token_map.get(ro["token_id"])
+            if token_text:
+                ro["text"] = token_text
+        ro.pop("token_id", None)
+
+        old_doc_id = ro.pop("document_id", None)
+        if old_doc_id and ro.get("kind") != "document":
+            obj_doc_mapping[ro_id] = old_doc_id
+
+    merged_map: dict[str, str] = {}
+    text_kind_to_id: dict[tuple[str, str], str] = {}
+    deduped_objects: list[dict] = []
+
+    for ro in objects:
+        key = (ro.get("text") or "", ro.get("kind") or "")
+        if key in text_kind_to_id:
+            old_id = ro["id"]
+            new_id = text_kind_to_id[key]
+            merged_map[old_id] = new_id
+            if old_id in obj_doc_mapping:
+                obj_doc_mapping.setdefault(new_id, obj_doc_mapping[old_id])
+        else:
+            text_kind_to_id[key] = ro["id"]
+            deduped_objects.append(ro)
+
+    for rel in relations:
+        for m in rel.get("members", []):
+            if m.get("id") in merged_map:
+                m["id"] = merged_map[m["id"]]
+
+    for ro_id, doc_id in obj_doc_mapping.items():
+        if ro_id in merged_map:
+            continue
+        doc_obj_id = doc_obj_map.get(doc_id)
+        if not doc_obj_id:
+            continue
+        exists = any(
+            r.get("type") == "belongs_to"
+            and any(m.get("id") == ro_id for m in r.get("members", []))
+            and any(m.get("id") == doc_obj_id for m in r.get("members", []))
+            for r in relations
+        )
+        if not exists:
+            relations.append({
+                "id": gen_id(),
+                "type": "belongs_to",
+                "members": [
+                    {"kind": "object", "id": ro_id},
+                    {"kind": "object", "id": doc_obj_id},
+                ],
+            })
+
+    knowledge["relation_objects"] = deduped_objects
+    knowledge["relations"] = relations
+    save_knowledge(knowledge)
+
+
 def get_document(doc_id: str) -> dict | None:
     with _lock:
         doc = _read_doc(doc_id)
@@ -324,38 +424,6 @@ def split_token(doc_id: str, token_id: str, offsets_to_move: list[int]) -> dict 
         }
         insert_idx = doc["tokens"].index(target) + 1
         doc["tokens"].insert(insert_idx, new_token)
-
-        # Remove knowledge objects/relations containing the old token (cascade)
-        knowledge = get_knowledge()
-        stale_obj_ids: set[str] = set()
-        for ro in knowledge.get("relation_objects", []):
-            if ro.get("token_id") == token_id:
-                stale_obj_ids.add(ro["id"])
-        knowledge["relation_objects"] = [
-            ro for ro in knowledge.get("relation_objects", [])
-            if ro["id"] not in stale_obj_ids
-        ]
-
-        stale_rel_ids: set[str] = set()
-        relations = knowledge.get("relations", [])
-        while True:
-            new_stale: set[str] = set()
-            for r in relations:
-                if r["id"] in stale_rel_ids:
-                    continue
-                for m in r.get("members", []):
-                    if m.get("kind") == "object" and m.get("id") in stale_obj_ids:
-                        new_stale.add(r["id"])
-                        break
-                    if m.get("kind") == "relation" and m.get("id") in stale_rel_ids:
-                        new_stale.add(r["id"])
-                        break
-            if not new_stale:
-                break
-            stale_rel_ids.update(new_stale)
-
-        knowledge["relations"] = [r for r in relations if r["id"] not in stale_rel_ids]
-        save_knowledge(knowledge)
 
         doc["updated_at"] = utcnow()
         _write_doc(doc)

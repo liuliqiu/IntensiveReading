@@ -76,7 +76,7 @@ cd frontend && npm run dev
 - **关系系统**：
   - **关系对象（RelationObject）**：将分词转为独立的关系对象，或直接创建文本对象。支持手动创建和 AI 解释生成
   - **关系（Relation）**：从已有关系对象中选择 2 个以上，建立语义关联（指代 / 属于 / 链接 / 注释 / 解释 / 自定义）
-  - **跨文档知识共享**：关系对象和关系存储在全局知识库中，所有文档共享同一套知识网络。绑定分词的对象通过 `document_id` 标记来源文档
+   - **跨文档知识共享**：关系对象和关系存储在全局知识库中，所有文档共享同一套知识网络。对象与文档的所属关系通过 `belongs_to` 关系表达，文档本身以 `kind: "document"` 的关系对象表示
 - **分词修正**：支持按含义拆分、按字符拆分、合并相邻分词
 - **修改持久化**：所有修改通过 API 保存到 JSON 文件
 - **AI 摘要**：点击「生成摘要」按钮，AI 对原文进行总结。摘要使用原文的词汇表进行分词（最大正向匹配），与原文共用同一套 Token ID。新出现的词汇自动加入原文词汇表。原文中对词汇的合并操作会自动反映到摘要中
@@ -90,7 +90,7 @@ cd frontend && npm run dev
 
 - **词汇表（Vocabulary）**：文档的 `tokens` 是唯一的词汇来源。每个 TextLayer 不拥有自己的 Token，而是引用文档 Token 的 ID，仅存储该 Token 在层文本中的出现位置（`start_offsets`）
 - **词汇表分词**：摘要生成后使用 `tokenize_with_vocabulary()` 分词。该函数将原文 Token 注册为 jieba 自定义词汇，然后切分摘要文本，确保已存在的 Token 复用相同 ID 和样式。新出现的词自动加入文档词汇表
-- **全局知识库**：关系（Relation）和关系对象（RelationObject）存储在全局的 `knowledge.json` 中，在所有文档间共享。无论在原文视图还是摘要视图编辑关系，修改的都是同一份全局数据。在摘要中为词汇建立的关系，等同于在原文中为该词汇建立关系。绑定具体分词的对象通过 `document_id` 标记来源文档
+- **全局知识库**：关系（Relation）和关系对象（RelationObject）存储在全局的 `knowledge.json` 中，在所有文档间共享。无论在原文视图还是摘要视图编辑关系，修改的都是同一份全局数据。在摘要中为词汇建立的关系，等同于在原文中为该词汇建立关系。对象通过 `belongs_to` 关系标识所属文档，文档本身以 `kind: "document"` 的关系对象表示
 - **层扩展性**：TextLayer 的 `type` 字段支持未来扩展为其他类型（如翻译、改写等），所有层都遵循统一词汇模型
 
 ## 产品设计原则
@@ -99,7 +99,7 @@ cd frontend && npm run dev
 
 全局知识库让所有文档共享同一套概念网络，但信息密度需要根据用户意图分层呈现：
 
-- **关系概览（无选中分词）**：仅显示与当前文档直接相关的概念关系（即成员对象的 `document_id` 与当前文档匹配）。用户进入文档时首要任务是理解本文内容，不应被其他文档的知识干扰
+- **关系概览（无选中分词）**：仅显示与当前文档直接相关的概念关系（即成员对象通过 `belongs_to` 关系属于当前文档）。用户进入文档时首要任务是理解本文内容，不应被其他文档的知识干扰
 - **分词详情（选中分词时）**：显示该词汇在**所有文档**中的关联关系。用户主动点击一个词汇意味着进入了探索模式，此时展示跨文档的知识连接有助于深度理解
 
 这一设计平衡了信息聚焦与知识探索的需求：默认视图减少认知负担，点击操作触发深度检索。
@@ -120,10 +120,12 @@ data/
 ```json
 {
   "relation_objects": [
-    { "id": "uuid", "token_id": "uuid|null", "document_id": "uuid|null", "text": "文本|null", "kind": "manual" }
+    { "id": "uuid", "text": "文本", "kind": "manual" },
+    { "id": "uuid", "text": "文档标题", "kind": "document", "metadata": { "document_id": "uuid" } }
   ],
   "relations": [
-    { "id": "uuid", "type": "refers_to", "members": [{"kind": "object", "id": "uuid"}] }
+    { "id": "uuid", "type": "refers_to", "members": [{"kind": "object", "id": "uuid"}] },
+    { "id": "uuid", "type": "belongs_to", "members": [{"kind": "object", "id": "uuid"}, {"kind": "object", "id": "uuid"}] }
   ]
 }
 ```
@@ -175,12 +177,17 @@ data/
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | `id` | string | 唯一标识 |
-| `token_id` | string\|null | 关联的 Token ID（与 `text` 互斥） |
-| `document_id` | string\|null | 来源文档 ID（绑定 Token 时标记所属文档） |
-| `text` | string\|null | 文本内容（与 `token_id` 互斥） |
-| `kind` | string | 来源：`manual` / `ai_explanation` / `ai_summary` / `ai_concept` / `ai_concept_desc` |
+| `text` | string\|null | 对象文本内容 |
+| `kind` | string | 来源：`manual` / `document` / `ai_explanation` / `ai_concept` / `ai_concept_desc` |
+| `metadata` | object\|null | JSON 扩展元数据（如 `document_id`） |
 
-> 约束：同一 Token 最多对应一个 RelationObject。
+> 约束：相同 `text` + `kind` 的对象自动合并为一个，跨文档共享。对象与文档的所属关系通过 `belongs_to` 类型的 Relation 表达。
+>
+> TODO: 同名词汇在不同文档中可能表达不同含义（如"苹果"可指水果或公司），当前自动合并同名对象，未来需要支持按语义区分。
+>
+> 注意：对象不再直接绑定 Token，而是通过文本内容匹配。同一词汇在不同文档中出现时，共用同一个 RelationObject。
+>
+> `belongs_to` 关系语义：`members[0] belongs_to members[1]`，即对象属于文档。文档对象本身以 `kind: "document"` 标识，其 `metadata.document_id` 存储原始文档 ID。
 
 ### Relation（关系）
 

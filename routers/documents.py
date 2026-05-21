@@ -8,17 +8,31 @@ from storage import (
 from services.tokenizer import tokenize_and_merge, tokenize_with_vocabulary, tokenize_with_concepts
 
 
-def _bind_concept_token_ids(objects: list[dict], tokens: list[dict], document_id: str) -> None:
-    bound = {ro["token_id"] for ro in objects if ro.get("token_id")}
-    for ro in objects:
-        if ro.get("token_id") or not ro.get("text"):
-            continue
-        for t in tokens:
-            if t["text"] == ro["text"] and t["id"] not in bound:
-                ro["token_id"] = t["id"]
-                ro["document_id"] = document_id
-                bound.add(t["id"])
-                break
+def _ensure_doc_object(doc_id: str, doc_title: str) -> str:
+    knowledge = get_knowledge()
+    for ro in knowledge.get("relation_objects", []):
+        if ro.get("kind") == "document" and ro.get("metadata", {}).get("document_id") == doc_id:
+            return ro["id"]
+    obj_id = gen_id()
+    knowledge.setdefault("relation_objects", []).append({
+        "id": obj_id,
+        "text": doc_title,
+        "kind": "document",
+        "metadata": {"document_id": doc_id},
+    })
+    save_knowledge(knowledge)
+    return obj_id
+
+
+def _create_belongs_to_rels(object_ids: list[str], doc_obj_id: str) -> list[dict]:
+    return [{
+        "id": gen_id(),
+        "type": "belongs_to",
+        "members": [
+            {"kind": "object", "id": oid},
+            {"kind": "object", "id": doc_obj_id},
+        ],
+    } for oid in object_ids]
 
 
 router = APIRouter(prefix="/api", tags=["documents"])
@@ -42,9 +56,9 @@ class TokenSchema(BaseModel):
 
 class RelationObjectSchema(BaseModel):
     id: str
-    token_id: str | None = None
     text: str | None = None
     kind: str | None = None
+    metadata: dict | None = None
 
     class Config:
         from_attributes = True
@@ -192,6 +206,7 @@ def create_document(doc: DocumentCreate):
     }
 
     save_document(document)
+    _ensure_doc_object(doc_id, doc.title)
     return _doc_to_out(document)
 
 
@@ -210,6 +225,8 @@ async def process_document(doc: DocumentCreate):
         "tokens": [],
     }
     save_document(document)
+
+    doc_obj_id = _ensure_doc_object(doc_id, doc.title)
 
     layer_id = gen_id()
     layer = {
@@ -232,28 +249,27 @@ async def process_document(doc: DocumentCreate):
     concept_names: list[str] = []
     new_objects: list[dict] = []
     new_relations: list[dict] = []
+    new_obj_ids: list[str] = []
     for c in concepts:
         obj_id = gen_id()
         concept_objects[c["text"]] = obj_id
         concept_names.append(c["text"])
         new_objects.append({
             "id": obj_id,
-            "token_id": None,
-            "document_id": doc_id,
             "text": c["text"],
             "kind": "ai_concept",
         })
+        new_obj_ids.append(obj_id)
 
         description = c.get("description", "")
         if description:
             desc_obj_id = gen_id()
             new_objects.append({
                 "id": desc_obj_id,
-                "token_id": None,
-                "document_id": doc_id,
                 "text": description,
                 "kind": "ai_concept_desc",
             })
+            new_obj_ids.append(desc_obj_id)
             new_relations.append({
                 "id": gen_id(),
                 "type": "explains",
@@ -262,6 +278,8 @@ async def process_document(doc: DocumentCreate):
                     {"kind": "object", "id": desc_obj_id},
                 ],
             })
+
+    new_relations.extend(_create_belongs_to_rels(new_obj_ids, doc_obj_id))
 
     for r in relationships:
         src_id = concept_objects.get(r.get("source", ""))
@@ -279,7 +297,6 @@ async def process_document(doc: DocumentCreate):
         })
 
     doc_tokens = tokenize_with_concepts(doc.original_text, concept_names)
-    _bind_concept_token_ids(new_objects, doc_tokens, doc_id)
 
     knowledge = get_knowledge()
     knowledge.setdefault("relation_objects", []).extend(new_objects)
@@ -486,30 +503,30 @@ async def analyze_layer_concepts(layer_id: str):
     concepts, relationships = await analyze_concepts(layer["text"])
 
     doc_id = doc["id"]
+    doc_obj_id = _ensure_doc_object(doc_id, doc["title"])
     new_objects: list[dict] = []
     new_relations: list[dict] = []
+    new_obj_ids: list[str] = []
     concept_objects: dict[str, str] = {}
     for c in concepts:
         obj_id = gen_id()
         concept_objects[c["text"]] = obj_id
         new_objects.append({
             "id": obj_id,
-            "token_id": None,
-            "document_id": doc_id,
             "text": c["text"],
             "kind": "ai_concept",
         })
+        new_obj_ids.append(obj_id)
 
         description = c.get("description", "")
         if description:
             desc_obj_id = gen_id()
             new_objects.append({
                 "id": desc_obj_id,
-                "token_id": None,
-                "document_id": doc_id,
                 "text": description,
                 "kind": "ai_concept_desc",
             })
+            new_obj_ids.append(desc_obj_id)
             new_relations.append({
                 "id": gen_id(),
                 "type": "explains",
@@ -518,6 +535,8 @@ async def analyze_layer_concepts(layer_id: str):
                     {"kind": "object", "id": desc_obj_id},
                 ],
             })
+
+    new_relations.extend(_create_belongs_to_rels(new_obj_ids, doc_obj_id))
 
     for r in relationships:
         src_id = concept_objects.get(r.get("source", ""))
@@ -533,8 +552,6 @@ async def analyze_layer_concepts(layer_id: str):
                 {"kind": "object", "id": tgt_id},
             ],
         })
-
-    _bind_concept_token_ids(new_objects, doc["tokens"], doc_id)
 
     knowledge = get_knowledge()
     knowledge.setdefault("relation_objects", []).extend(new_objects)
@@ -559,25 +576,18 @@ async def explain_object(doc_id: str, object_id: str, body: ExplainRequest = Exp
     if not obj:
         raise HTTPException(status_code=404, detail="Object not found")
 
-    term_text = ""
-    if obj.get("token_id"):
-        for t in doc["tokens"]:
-            if t["id"] == obj["token_id"]:
-                term_text = t["text"]
-                break
-    if not term_text and obj.get("text"):
-        term_text = obj["text"]
+    term_text = obj.get("text", "")
 
     context = _get_surrounding_context(doc["original_text"], term_text, body.context_window)
 
     from services.ai import explain_text
     explanation = await explain_text(term_text, context)
 
+    doc_obj_id = _ensure_doc_object(doc_id, doc["title"])
+
     new_obj_id = gen_id()
     new_obj = {
         "id": new_obj_id,
-        "token_id": None,
-        "document_id": doc_id,
         "text": explanation,
         "kind": "ai_explanation",
     }
@@ -592,16 +602,26 @@ async def explain_object(doc_id: str, object_id: str, body: ExplainRequest = Exp
         ],
     }
     knowledge.setdefault("relations", []).append(new_rel)
+
+    belongs_to_rel = {
+        "id": gen_id(),
+        "type": "belongs_to",
+        "members": [
+            {"kind": "object", "id": new_obj_id},
+            {"kind": "object", "id": doc_obj_id},
+        ],
+    }
+    knowledge.setdefault("relations", []).append(belongs_to_rel)
+
     save_knowledge(knowledge)
 
     return _doc_to_out(doc)
 
 
 class KnowledgeObjectCreate(BaseModel):
-    token_id: str | None = None
-    document_id: str | None = None
     text: str | None = None
     kind: str = "manual"
+    document_id: str | None = None
 
 
 class KnowledgeRelationCreate(BaseModel):
@@ -633,9 +653,42 @@ def get_knowledge_route():
 @router.post("/knowledge/objects", response_model=KnowledgeOut)
 def create_knowledge_object(body: KnowledgeObjectCreate):
     knowledge = get_knowledge()
-    new_obj = body.model_dump()
-    new_obj["id"] = gen_id()
-    knowledge.setdefault("relation_objects", []).append(new_obj)
+    objects = knowledge.get("relation_objects", [])
+    relations = knowledge.get("relations", [])
+
+    obj_id = None
+    if body.text:
+        for ro in objects:
+            if ro.get("text") == body.text and ro.get("kind") == body.kind:
+                obj_id = ro["id"]
+                break
+
+    if not obj_id:
+        obj_id = gen_id()
+        objects.append({
+            "id": obj_id,
+            "text": body.text,
+            "kind": body.kind,
+        })
+
+    if body.document_id:
+        doc_obj_id = _ensure_doc_object(body.document_id, "")
+        existing = any(
+            r.get("type") == "belongs_to"
+            and any(m.get("id") == obj_id for m in r.get("members", []))
+            and any(m.get("id") == doc_obj_id for m in r.get("members", []))
+            for r in relations
+        )
+        if not existing:
+            relations.append({
+                "id": gen_id(),
+                "type": "belongs_to",
+                "members": [
+                    {"kind": "object", "id": obj_id},
+                    {"kind": "object", "id": doc_obj_id},
+                ],
+            })
+
     save_knowledge(knowledge)
     return KnowledgeOut(
         relation_objects=[RelationObjectSchema(**ro) for ro in knowledge.get("relation_objects", [])],
@@ -649,14 +702,19 @@ def delete_knowledge_object(object_id: str):
     objects = knowledge.get("relation_objects", [])
     relations = knowledge.get("relations", [])
 
-    ref_count = sum(
+    non_belongs_refs = sum(
         1 for r in relations
-        if any(m.get("id") == object_id for m in r.get("members", []))
+        if r.get("type") != "belongs_to"
+        and any(m.get("id") == object_id for m in r.get("members", []))
     )
-    if ref_count > 0:
-        raise HTTPException(status_code=400, detail=f"Object is referenced by {ref_count} relations")
+    if non_belongs_refs > 0:
+        raise HTTPException(status_code=400, detail=f"Object is referenced by {non_belongs_refs} relations")
 
     knowledge["relation_objects"] = [ro for ro in objects if ro["id"] != object_id]
+    knowledge["relations"] = [
+        r for r in relations
+        if not any(m.get("kind") == "object" and m.get("id") == object_id for m in r.get("members", []))
+    ]
     save_knowledge(knowledge)
     return KnowledgeOut(
         relation_objects=[RelationObjectSchema(**ro) for ro in knowledge.get("relation_objects", [])],

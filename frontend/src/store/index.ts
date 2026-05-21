@@ -15,30 +15,6 @@ function mergeTokensByText(tokens: Token[], keepId: string): Token[] {
   return [...groups.values()]
 }
 
-function cascadeStaleIds(
-  relationObjects: RelationObject[],
-  relations: Relation[],
-  staleObjIds: Set<string>
-): { relation_objects: RelationObject[]; relations: Relation[] } {
-  const newROs = relationObjects.filter((ro) => !staleObjIds.has(ro.id))
-  const staleIds = new Set<string>(staleObjIds)
-
-  while (true) {
-    const newStale = new Set<string>()
-    for (const r of relations) {
-      if (staleIds.has(r.id)) continue
-      if (r.members.some((m) => staleIds.has(m.id))) {
-        newStale.add(r.id)
-      }
-    }
-    if (newStale.size === 0) break
-    for (const id of newStale) staleIds.add(id)
-  }
-
-  const newRelations = relations.filter((r) => !staleIds.has(r.id))
-  return { relation_objects: newROs, relations: newRelations }
-}
-
 interface ReaderState {
   document: Document | null
   tokens: Token[]
@@ -166,14 +142,8 @@ export const useReaderStore = create<ReaderState>((set) => ({
       const insertAt = remaining.length === 0 ? idx : idx + 1
       newTokens.splice(insertAt, 0, tokenA, tokenB)
 
-      const { relation_objects: newROs, relations: newRels } = cascadeStaleIds(
-        state.relation_objects, state.relations,
-        new Set(state.relation_objects.filter((ro) => ro.token_id === tokenId).map((ro) => ro.id))
-      )
       return {
         tokens: newTokens,
-        relation_objects: newROs,
-        relations: newRels,
         selectedTokenId: null,
       }
     }),
@@ -204,14 +174,8 @@ export const useReaderStore = create<ReaderState>((set) => ({
         })
       }
 
-      const { relation_objects: newROs2, relations: newRels2 } = cascadeStaleIds(
-        state.relation_objects, state.relations,
-        new Set(state.relation_objects.filter((ro) => ro.token_id === tokenId).map((ro) => ro.id))
-      )
       return {
         tokens: mergeTokensByText(newTokens, jumpId),
-        relation_objects: newROs2,
-        relations: newRels2,
         selectedTokenId: jumpId,
       }
     }),
@@ -257,14 +221,8 @@ export const useReaderStore = create<ReaderState>((set) => ({
         : 0
       newTokens.splice(insertAt, 0, merged)
 
-      const { relation_objects: newROs3, relations: newRels3 } = cascadeStaleIds(
-        state.relation_objects, state.relations,
-        new Set(state.relation_objects.filter((ro) => ro.token_id === idA || ro.token_id === idB).map((ro) => ro.id))
-      )
       return {
         tokens: newTokens,
-        relation_objects: newROs3,
-        relations: newRels3,
         selectedTokenId: null,
       }
     }),
@@ -347,14 +305,8 @@ export const useReaderStore = create<ReaderState>((set) => ({
         }
       }
 
-      const { relation_objects: newROs4, relations: newRels4 } = cascadeStaleIds(
-        state.relation_objects, state.relations,
-        new Set(state.relation_objects.filter((ro) => ro.token_id === baseId || (ro.token_id && adjIdsSet.has(ro.token_id))).map((ro) => ro.id))
-      )
       return {
         tokens: mergeTokensByText(newTokens, jumpId),
-        relation_objects: newROs4,
-        relations: newRels4,
         selectedTokenId: jumpId,
       }
     }),

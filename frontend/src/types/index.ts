@@ -7,10 +7,9 @@ export interface Token {
 
 export interface RelationObject {
   id: string
-  token_id?: string | null
-  document_id?: string | null
   text?: string | null
   kind?: string | null
+  metadata?: Record<string, any> | null
 }
 
 export interface Knowledge {

@@ -28,14 +28,26 @@ export default function SummaryCanvas() {
 
   const { conceptObjects, conceptRelations } = useMemo(() => {
     const docId = document?.id
+    const docObj = relationObjects.find((ro) => ro.kind === 'document' && ro.metadata?.document_id === docId)
+    let belongsToIds = new Set<string>()
+    if (docObj) {
+      for (const rel of relations) {
+        if (rel.type === 'belongs_to') {
+          const members = rel.members
+          if (members.length >= 2 && members[1].id === docObj.id) {
+            belongsToIds.add(members[0].id)
+          }
+        }
+      }
+    }
     const conceptIds = new Set(
       relationObjects
-        .filter((ro) => ro.kind === 'ai_concept' && ro.document_id === docId)
+        .filter((ro) => ro.kind === 'ai_concept' && belongsToIds.has(ro.id))
         .map((ro) => ro.id)
     )
     const objs = relationObjects.filter((ro) => conceptIds.has(ro.id))
     const rels = relations.filter((r) =>
-      r.members.every((m) => conceptIds.has(m.id))
+      r.type !== 'belongs_to' && r.members.every((m) => conceptIds.has(m.id))
     )
     return { conceptObjects: objs, conceptRelations: rels }
   }, [relationObjects, relations, document])

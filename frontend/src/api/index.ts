@@ -63,7 +63,7 @@ export async function fetchKnowledge(): Promise<Knowledge> {
   return request('/knowledge')
 }
 
-export async function createKnowledgeObject(body: { token_id?: string | null; document_id?: string | null; text?: string | null; kind?: string }): Promise<Knowledge> {
+export async function createKnowledgeObject(body: { text?: string | null; kind?: string; document_id?: string | null }): Promise<Knowledge> {
   return request('/knowledge/objects', {
     method: 'POST',
     body: JSON.stringify(body),

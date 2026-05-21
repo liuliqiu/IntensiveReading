@@ -46,7 +46,7 @@ function TokenDetail({ token, isLayerView }: { token: Token; isLayerView: boolea
   const setRelations = useReaderStore((s) => s.setRelations)
   const setDocument = useReaderStore((s) => s.setDocument)
 
-  const tokenRelationObject = relationObjects.find((ro) => ro.token_id === token.id)
+  const tokenRelationObject = relationObjects.find((ro) => ro.text === token.text && ro.kind !== 'document')
 
   const tokenRelations = useMemo(
     () =>
@@ -110,7 +110,7 @@ function TokenDetail({ token, isLayerView }: { token: Token; isLayerView: boolea
 
   const handleConvertToken = async () => {
     if (tokenRelationObject || !document) return
-    const knowledge = await createKnowledgeObject({ token_id: token.id, document_id: document.id })
+    const knowledge = await createKnowledgeObject({ text: token.text, document_id: document.id })
     setRelationObjects(knowledge.relation_objects)
     setRelations(knowledge.relations)
   }
@@ -242,10 +242,6 @@ function TokenDetail({ token, isLayerView }: { token: Token; isLayerView: boolea
   }, [document, tokenRelationObject, setExplaining, setDocument])
 
   const resolveObjectDisplay = (obj: RelationObject): string => {
-    if (obj.token_id) {
-      const t = tokens.find((tok) => tok.id === obj.token_id)
-      return t ? `「${t.text}」` : '(已删除)'
-    }
     if (obj.text) {
       const short = obj.text.slice(0, 20)
       return obj.text.length > 20 ? short + '…' : short
@@ -373,7 +369,6 @@ function TokenDetail({ token, isLayerView }: { token: Token; isLayerView: boolea
           {tokenRelationObject ? (
             <div className="border rounded p-2 text-xs flex items-center justify-between gap-2">
               <span className="text-gray-500">
-                <span className="text-gray-400">分词 </span>
                 「{token.text}」
               </span>
               <button onClick={handleDeleteTokenObject} className="text-gray-400 hover:text-red-500 shrink-0">✕</button>
@@ -385,27 +380,19 @@ function TokenDetail({ token, isLayerView }: { token: Token; isLayerView: boolea
           )}
 
           {tokenRelationObject && relationObjects
-            .filter((ro) => ro.token_id && ro.id !== tokenRelationObject.id && relatedObjectIds.has(ro.id))
+            .filter((ro) => ro.id !== tokenRelationObject.id && relatedObjectIds.has(ro.id) && ro.kind !== 'document')
             .map((ro) => {
-              const t = tokens.find((tok) => tok.id === ro.token_id)
               return (
                 <div key={ro.id} className="border rounded p-2 text-xs flex items-center justify-between gap-2">
-                  <button
-                    onClick={() => {
-                      if (isLayerView) { setLayerSelectedToken(ro.token_id!) }
-                      else { setSelectedToken(ro.token_id!) }
-                    }}
-                    className="text-blue-600 hover:text-blue-800 truncate text-left"
-                  >
-                    <span className="text-gray-400">分词 </span>
-                    「{t?.text || '(已删除)'}」
-                  </button>
+                  <span className="text-gray-500 truncate">
+                    {resolveObjectDisplay(ro)}
+                  </span>
                 </div>
               )
             })}
 
           {relationObjects
-            .filter((ro) => !ro.token_id && (tokenRelationObject ? relatedObjectIds.has(ro.id) : true))
+            .filter((ro) => ro.kind !== 'document' && (tokenRelationObject ? relatedObjectIds.has(ro.id) && ro.id !== tokenRelationObject.id : true))
             .map((ro) => {
               return (
                 <div key={ro.id} className="border rounded p-2 text-xs flex items-center justify-between gap-2">
@@ -438,7 +425,7 @@ function TokenDetail({ token, isLayerView }: { token: Token; isLayerView: boolea
             <span className="text-sm font-medium text-gray-700">关系</span>
             <button
               onClick={startCreating}
-              disabled={!tokenRelationObject && relationObjects.filter((ro) => !ro.token_id).length === 0}
+              disabled={!tokenRelationObject && relationObjects.filter((ro) => ro.kind !== 'document').length === 0}
               className="text-xs text-blue-600 hover:text-blue-800 disabled:text-gray-300"
             >
               + 添加关系
@@ -510,7 +497,7 @@ function TokenDetail({ token, isLayerView }: { token: Token; isLayerView: boolea
                   {relationObjects.map((ro) => (
                     <label key={`obj:${ro.id}`} className="flex items-center gap-2 px-2 py-1.5 text-xs hover:bg-gray-50 cursor-pointer">
                       <input type="checkbox" checked={isMemberSelected('object', ro.id)} onChange={() => toggleMemberSelection('object', ro.id)} />
-                      <span className="text-gray-400 shrink-0">{ro.token_id ? '分词' : '文本'}</span>
+                      <span className="text-gray-400 shrink-0">{ro.kind === 'document' ? '文档' : '对象'}</span>
                       <span className="text-gray-700 truncate">{resolveObjectDisplay(ro)}</span>
                     </label>
                   ))}
@@ -658,22 +645,26 @@ function RelationOverview() {
   const isPredefined = (t: string) => (RELATION_TYPES as readonly string[]).includes(t)
 
   const docRelations = useMemo(() => {
-    if (!document) return relations
+    if (!document) return relations.filter((r) => r.type !== 'belongs_to')
     const docId = document.id
+    const docObj = relationObjects.find((ro) => ro.kind === 'document' && ro.metadata?.document_id === docId)
+    if (!docObj) return []
+    const belongsToObjIds = new Set<string>()
+    for (const rel of relations) {
+      if (rel.type === 'belongs_to') {
+        const members = rel.members
+        if (members.length >= 2 && members[1].id === docObj.id) {
+          belongsToObjIds.add(members[0].id)
+        }
+      }
+    }
     return relations.filter((rel) =>
-      rel.members.some((m) => {
-        if (m.kind !== 'object') return false
-        const obj = relationObjects.find((ro) => ro.id === m.id)
-        return obj?.document_id === docId
-      })
+      rel.type !== 'belongs_to' &&
+      rel.members.some((m) => m.kind === 'object' && belongsToObjIds.has(m.id))
     )
   }, [relations, relationObjects, document])
 
   const resolveObjectDisplay = (obj: RelationObject, tkns: Token[]): string => {
-    if (obj.token_id) {
-      const t = tkns.find((tok) => tok.id === obj.token_id)
-      return t ? `「${t.text}」` : '(已删除)'
-    }
     if (obj.text) {
       const short = obj.text.slice(0, 16)
       return obj.text.length > 16 ? short + '…' : short
@@ -725,7 +716,10 @@ function RelationOverview() {
                         onClick={() => {
                           if (m.kind === 'object') {
                             const obj = relationObjects.find((ro) => ro.id === m.id)
-                            if (obj?.token_id) setSelectedToken(obj.token_id)
+                            if (obj?.text) {
+                              const matchingToken = tokens.find((t) => t.text === obj.text)
+                              if (matchingToken) setSelectedToken(matchingToken.id)
+                            }
                           }
                         }}
                       >
