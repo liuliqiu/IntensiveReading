@@ -12,6 +12,7 @@ export default function SummaryCanvas() {
   })
   const relationObjects = useReaderStore((s) => s.relation_objects)
   const relations = useReaderStore((s) => s.relations)
+  const document = useReaderStore((s) => s.document)
 
   const renderItems: RenderToken[] = useMemo(() => {
     return layerTokens
@@ -26,9 +27,10 @@ export default function SummaryCanvas() {
   }, [layerTokens])
 
   const { conceptObjects, conceptRelations } = useMemo(() => {
+    const docId = document?.id
     const conceptIds = new Set(
       relationObjects
-        .filter((ro) => ro.kind === 'ai_concept')
+        .filter((ro) => ro.kind === 'ai_concept' && ro.document_id === docId)
         .map((ro) => ro.id)
     )
     const objs = relationObjects.filter((ro) => conceptIds.has(ro.id))
@@ -36,7 +38,7 @@ export default function SummaryCanvas() {
       r.members.every((m) => conceptIds.has(m.id))
     )
     return { conceptObjects: objs, conceptRelations: rels }
-  }, [relationObjects, relations])
+  }, [relationObjects, relations, document])
 
   const groupedRelations = useMemo(() => {
     const groups = new Map<string, Relation[]>()
