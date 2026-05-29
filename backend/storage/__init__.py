@@ -12,7 +12,6 @@ from backend.storage.layers import (
 )
 from backend.storage.knowledge import get_knowledge, save_knowledge
 from backend.storage.files import save_uploaded_file, get_file_path
-from backend.storage.migrations import migrate_docs_to_knowledge, migrate_remove_token_and_doc_id
 from backend.storage.base import DATA_DIR, LAYERS_DIR, FILES_DIR
 
 
@@ -20,5 +19,3 @@ def init():
     os.makedirs(DATA_DIR, exist_ok=True)
     os.makedirs(LAYERS_DIR, exist_ok=True)
     os.makedirs(FILES_DIR, exist_ok=True)
-    migrate_docs_to_knowledge()
-    migrate_remove_token_and_doc_id()

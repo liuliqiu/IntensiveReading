@@ -4,23 +4,11 @@ import os
 
 from backend.storage import base as storage_base
 from backend.storage.base import gen_id, utcnow, _lock, _read_doc, _write_doc
-from backend.storage.migrations import (
-    migrate_refs_to_relations,
-    migrate_relations_to_objects,
-    migrate_objects_to_top_level,
-    migrate_objects_add_kind,
-)
 
 
 def get_document(doc_id: str) -> dict | None:
     with _lock:
-        doc = _read_doc(doc_id)
-        if doc:
-            doc = migrate_refs_to_relations(doc)
-            doc = migrate_relations_to_objects(doc)
-            doc = migrate_objects_to_top_level(doc)
-            doc = migrate_objects_add_kind(doc)
-        return doc
+        return _read_doc(doc_id)
 
 
 def list_documents() -> list[dict]:
@@ -33,10 +21,6 @@ def list_documents() -> list[dict]:
                 doc_id = filename[:-5]
                 data = _read_doc(doc_id)
                 if data:
-                    data = migrate_refs_to_relations(data)
-                    data = migrate_relations_to_objects(data)
-                    data = migrate_objects_to_top_level(data)
-                    data = migrate_objects_add_kind(data)
                     docs.append(data)
         docs.sort(key=lambda d: d.get("updated_at", ""), reverse=True)
         return docs

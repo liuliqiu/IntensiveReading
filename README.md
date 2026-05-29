@@ -45,7 +45,6 @@
 │       ├── layers.py             #   文本层 CRUD
 │       ├── knowledge.py          #   知识库 CRUD
 │       ├── files.py              #   上传文件存储
-│       └── migrations.py         #   数据迁移（5 个迁移函数）
 ├── tests/
 │   ├── test_tokenizer.py
 │   ├── test_file_parser.py
@@ -300,14 +299,3 @@ data/
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | `POST` | `/api/documents/upload-file` | 上传文件（目前支持 .md），自动去除标记得到纯文本，创建文档 + 源文件层，并执行完整处理流程（摘要 + 概念分析 + 分词）。预留 PDF / Word / Excel / PPT 支持
-
-### 数据迁移
-
-存储层包含自动迁移逻辑，按以下顺序执行：
-1. `_migrate_refs_to_relations` — 将旧版 Token 上的 `ref_*` 字段转为独立的 Relation
-2. `_migrate_relations_to_objects` — 将旧版 Relation（source_token_id/target_*）转为 objects 格式
-3. `_migrate_objects_to_top_level` — 将内嵌 objects 提取为顶层 relation_objects 池
-4. `_migrate_objects_add_kind` — 给旧版关系对象补充 `kind: "manual"` 字段
-5. `_migrate_docs_to_knowledge` — 将所有文档中的关系和关系对象迁移到全局 `knowledge.json`
-
-迁移在每次读取文档时自动执行，无需手动干预。
