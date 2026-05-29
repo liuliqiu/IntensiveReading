@@ -15,18 +15,49 @@
 ## 项目结构
 
 ```
-├── main.py                       # FastAPI 应用入口
-├── storage.py                    # 文件存储层（含数据迁移逻辑）
+├── main.py                       # 入口（委托 backend.main.app）
+├── storage.py                    # 向后兼容封装（委托 backend.storage）
 ├── opencode.json                 # opencode 项目配置
 ├── AGENTS.md                     # opencode 行为约定
-├── services/
-│   ├── tokenizer.py              # jieba 分词 + 概念感知分词 + 词汇表分词
-│   ├── ai.py                     # AsyncOpenAI 客户端（摘要/解释/概念分析）
-│   ├── scraper.py                # 网页抓取（静态 + JS 渲染）
-│   └── file_parser.py            # 文件格式解析（Markdown 纯文本提取，预留 PDF/Word/Excel/PPT）
-├── routers/documents.py          # API 路由（文档 + 文本层 + AI 操作 + 统一处理）
+├── backend/                      # 后端代码
+│   ├── __init__.py
+│   ├── config.py                 # 路径常量、CORS 配置
+│   ├── main.py                   # FastAPI 应用 + 中间件 + 路由注册
+│   ├── schemas/                  # Pydantic 数据模型
+│   │   ├── tokens.py             #   TokenSchema
+│   │   ├── documents.py          #   DocumentCreate/Out, DocumentProcessResponse
+│   │   ├── layers.py             #   TextLayerCreate/Out
+│   │   ├── knowledge.py          #   RelationSchema, KnowledgeOut
+│   │   └── scrape.py             #   ScrapeRequest/Response
+│   ├── routers/                  # API 路由
+│   │   ├── _helpers.py           #   公共辅助函数
+│   │   ├── documents.py          #   文档 CRUD + process + upload-file
+│   │   ├── layers.py             #   文本层 CRUD + summarize + concepts + explain
+│   │   ├── knowledge.py          #   知识库 CRUD
+│   │   └── scrape.py             #   网页抓取
+│   ├── services/                 # 业务逻辑
+│   │   ├── tokenizer.py          #   jieba 分词 + 概念感知分词 + 词汇表分词
+│   │   ├── ai.py                 #   AsyncOpenAI 客户端（摘要/解释/概念分析）
+│   │   ├── scraper.py            #   网页抓取（静态 + JS 渲染）
+│   │   └── file_parser.py        #   文件格式解析（Markdown 纯文本提取，预留 PDF/Word/Excel/PPT）
+│   └── storage/                  # 文件存储层
+│       ├── base.py               #   ID/时间工具、路径、锁、原始 JSON 读写
+│       ├── documents.py          #   文档 CRUD + split_token, find_token_doc_id
+│       ├── layers.py             #   文本层 CRUD
+│       ├── knowledge.py          #   知识库 CRUD
+│       ├── files.py              #   上传文件存储
+│       └── migrations.py         #   数据迁移（5 个迁移函数）
+├── routers/                      # 向后兼容封装（委托 backend.routers）
+├── services/                     # 向后兼容封装（委托 backend.services）
 ├── tests/
-│   └── test_tokenizer.py         # 分词单元测试
+│   ├── test_tokenizer.py
+│   ├── test_file_parser.py
+│   ├── test_schemas.py
+│   ├── test_storage_base.py
+│   ├── test_storage_documents.py
+│   ├── test_storage_layers.py
+│   ├── test_storage_knowledge.py
+│   └── test_storage_files.py
 ├── frontend/
 │   └── src/
 │       ├── types/index.ts            # 类型定义
