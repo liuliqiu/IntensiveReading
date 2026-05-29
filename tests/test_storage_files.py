@@ -1,6 +1,6 @@
 """Tests for uploaded file storage functions."""
 
-import storage
+import backend.storage as storage
 import backend.storage.base as storage_base
 
 

@@ -1,6 +1,6 @@
 import uuid
 
-from services.tokenizer import (
+from backend.services.tokenizer import (
     _classify_token,
     _tokenize_with_added_words,
     tokenize_and_merge,

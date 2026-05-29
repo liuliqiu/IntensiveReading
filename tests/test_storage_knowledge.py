@@ -1,7 +1,7 @@
 """Tests for knowledge CRUD in storage."""
 
 import json
-import storage
+import backend.storage as storage
 import backend.storage.base as storage_base
 
 

@@ -1,6 +1,6 @@
 """Tests for storage base utilities: gen_id, utcnow."""
 
-import storage
+import backend.storage as storage
 import backend.storage.base as storage_base
 
 

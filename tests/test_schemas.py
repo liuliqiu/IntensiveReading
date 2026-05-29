@@ -1,8 +1,8 @@
-"""Tests for Pydantic schemas in routers/documents.py."""
+"""Tests for Pydantic schemas."""
 
 import pytest
 from pydantic import ValidationError
-from routers.documents import (
+from backend.schemas import (
     DocumentCreate, DocumentUpdate, DocumentOut, DocumentListItem,
     TextLayerCreate, TextLayerUpdate, TextLayerOut,
     TokenSchema, RelationObjectSchema, MemberSchema, RelationSchema,

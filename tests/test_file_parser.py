@@ -1,7 +1,7 @@
 """Tests for services/file_parser.py"""
 
 import pytest
-from services.file_parser import strip_markdown, get_parser
+from backend.services.file_parser import strip_markdown, get_parser
 
 
 def test_strip_markdown_headers():

@@ -16,7 +16,6 @@
 
 ```
 ├── main.py                       # 入口（委托 backend.main.app）
-├── storage.py                    # 向后兼容封装（委托 backend.storage）
 ├── opencode.json                 # opencode 项目配置
 ├── AGENTS.md                     # opencode 行为约定
 ├── backend/                      # 后端代码
@@ -47,8 +46,6 @@
 │       ├── knowledge.py          #   知识库 CRUD
 │       ├── files.py              #   上传文件存储
 │       └── migrations.py         #   数据迁移（5 个迁移函数）
-├── routers/                      # 向后兼容封装（委托 backend.routers）
-├── services/                     # 向后兼容封装（委托 backend.services）
 ├── tests/
 │   ├── test_tokenizer.py
 │   ├── test_file_parser.py
