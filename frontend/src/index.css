@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@plugin "@tailwindcss/typography";
+
 .s-default { }
 .s-keyword { @apply border-b-2 border-b-blue-400 bg-blue-50/50; }
 .s-entity { }
