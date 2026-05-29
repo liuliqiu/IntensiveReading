@@ -30,6 +30,7 @@ interface ReaderState {
   layers: TextLayer[]
   selectedLayerId: string | null
   layerTokens: Token[]
+  originFileLayer: TextLayer | null
   viewMode: ViewMode
   summarizing: boolean
   explaining: boolean
@@ -63,6 +64,7 @@ interface ReaderState {
   setSelectedLayer: (id: string | null) => void
   setLayerData: (layer: TextLayer) => void
   setLayerTokens: (tokens: Token[]) => void
+  setOriginFileLayer: (layer: TextLayer | null) => void
   setViewMode: (mode: ViewMode) => void
   setSummarizing: (v: boolean) => void
   setExplaining: (v: boolean) => void
@@ -86,6 +88,7 @@ export const useReaderStore = create<ReaderState>((set) => ({
   layers: [],
   selectedLayerId: null,
   layerTokens: [],
+  originFileLayer: null,
   viewMode: 'original' as ViewMode,
   summarizing: false,
   explaining: false,
@@ -269,7 +272,7 @@ export const useReaderStore = create<ReaderState>((set) => ({
 
       if (allPairs.length === 0) return state
 
-      let newTokens = state.tokens.filter((t) => t.id !== baseId && !adjIdsSet.has(t.id))
+      const newTokens = state.tokens.filter((t) => t.id !== baseId && !adjIdsSet.has(t.id))
       const baseOffs = new Set(baseToken.start_offsets)
       const jumpId = crypto.randomUUID()
 
@@ -354,6 +357,7 @@ export const useReaderStore = create<ReaderState>((set) => ({
       layers: [],
       selectedLayerId: null,
       layerTokens: [],
+      originFileLayer: null,
       viewMode: 'original',
       summarizing: false,
       explaining: false,
@@ -366,6 +370,7 @@ export const useReaderStore = create<ReaderState>((set) => ({
   setSelectedLayer: (id) => set({ selectedLayerId: id }),
   setLayerData: (layer) => set({ layerTokens: [...layer.tokens] }),
   setLayerTokens: (tokens) => set({ layerTokens: tokens }),
+  setOriginFileLayer: (layer) => set({ originFileLayer: layer }),
   setViewMode: (mode) =>
     set({ viewMode: mode, selectedTokenId: null, hoveredTokenId: null, layerSelectedTokenId: null, layerHoveredTokenId: null }),
   setSummarizing: (v) => set({ summarizing: v }),

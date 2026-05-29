@@ -25,7 +25,7 @@ export default function TokenActionPanel() {
     return <RelationOverview />
   }
 
-  return <TokenDetail token={token} isLayerView={viewMode === 'layer'} />
+  return <TokenDetail token={token} isLayerView={viewMode === 'summary'} />
 }
 
 function TokenDetail({ token, isLayerView }: { token: Token; isLayerView: boolean }) {

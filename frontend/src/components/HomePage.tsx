@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { fetchDocuments, processDocument, scrapeUrl } from '../api'
+import { fetchDocuments, processDocument, scrapeUrl, uploadFile } from '../api'
 import type { DocumentListItem } from '../types'
 
-type InputMode = 'manual' | 'url'
+type InputMode = 'manual' | 'url' | 'file'
 
 export default function HomePage() {
   const navigate = useNavigate()
@@ -18,6 +18,10 @@ export default function HomePage() {
 
   const [url, setUrl] = useState('')
   const [scraping, setScraping] = useState(false)
+
+  const [file, setFile] = useState<File | null>(null)
+  const [uploading, setUploading] = useState(false)
+  const [dragOver, setDragOver] = useState(false)
 
   useEffect(() => {
     fetchDocuments()
@@ -54,6 +58,37 @@ export default function HomePage() {
     }
   }
 
+  const handleFileUpload = async () => {
+    if (!file) return
+    setUploading(true)
+    try {
+      const result = await uploadFile(file)
+      navigate(`/reader/${result.document.id}`, { state: result })
+    } catch (e) {
+      alert(`上传失败：${e instanceof Error ? e.message : e}`)
+      setUploading(false)
+    }
+  }
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0]
+    if (f) setFile(f)
+  }
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    setDragOver(false)
+    const f = e.dataTransfer.files?.[0]
+    if (f) setFile(f)
+  }
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    setDragOver(true)
+  }
+
+  const handleDragLeave = () => setDragOver(false)
+
   const canSubmit = title.trim() && text.trim()
 
   return (
@@ -84,6 +119,16 @@ export default function HomePage() {
           >
             网页抓取
           </button>
+          <button
+            onClick={() => setMode('file')}
+            className={`px-4 py-1.5 text-sm rounded-md transition-colors ${
+              mode === 'file'
+                ? 'bg-white shadow text-gray-900 font-medium'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            上传文件
+          </button>
         </div>
 
         {mode === 'url' && (
@@ -106,27 +151,88 @@ export default function HomePage() {
           </div>
         )}
 
-        <input
-          type="text"
-          placeholder="标题"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          className="w-full border rounded px-3 py-2 mb-3 text-sm"
-        />
-        <textarea
-          placeholder={mode === 'url' ? '抓取网页后自动填入正文...' : '输入需要精读的长文本...'}
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          rows={6}
-          className="w-full border rounded px-3 py-2 mb-3 text-sm resize-y"
-        />
-        <button
-          onClick={handleCreate}
-          disabled={creating || !canSubmit}
-          className="px-4 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:opacity-50"
-        >
-          {creating ? '分析中...' : '提交并分析'}
-        </button>
+        {mode === 'file' && (
+          <div className="mb-3">
+            <div
+              onDrop={handleDrop}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
+                dragOver
+                  ? 'border-blue-500 bg-blue-50'
+                  : 'border-gray-300 hover:border-gray-400'
+              }`}
+            >
+              <input
+                type="file"
+                accept=".md"
+                onChange={handleFileSelect}
+                className="hidden"
+                id="file-input"
+              />
+              {file ? (
+                <div>
+                  <p className="text-sm font-medium text-gray-700">{file.name}</p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {(file.size / 1024).toFixed(1)} KB
+                  </p>
+                  <button
+                    onClick={() => setFile(null)}
+                    className="mt-2 text-xs text-red-500 hover:text-red-700"
+                  >
+                    移除
+                  </button>
+                </div>
+              ) : (
+                <label htmlFor="file-input" className="cursor-pointer block">
+                  <p className="text-sm text-gray-600">
+                    拖拽 Markdown 文件到此处，或点击选择
+                  </p>
+                  <p className="text-xs text-gray-400 mt-1">
+                    支持 .md 格式
+                  </p>
+                </label>
+              )}
+            </div>
+          </div>
+        )}
+
+        {mode !== 'file' && (
+          <>
+            <input
+              type="text"
+              placeholder="标题"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              className="w-full border rounded px-3 py-2 mb-3 text-sm"
+            />
+            <textarea
+              placeholder={mode === 'url' ? '抓取网页后自动填入正文...' : '输入需要精读的长文本...'}
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              rows={6}
+              className="w-full border rounded px-3 py-2 mb-3 text-sm resize-y"
+            />
+          </>
+        )}
+
+        {mode === 'file' ? (
+          <button
+            onClick={handleFileUpload}
+            disabled={uploading || !file}
+            className="px-4 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:opacity-50"
+          >
+            {uploading ? '分析中...' : '上传并分析'}
+          </button>
+        ) : (
+          <button
+            onClick={handleCreate}
+            disabled={creating || !canSubmit}
+            className="px-4 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:opacity-50"
+          >
+            {creating ? '分析中...' : '提交并分析'}
+          </button>
+        )}
       </div>
 
       <div>

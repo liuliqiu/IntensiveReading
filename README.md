@@ -6,8 +6,8 @@
 
 | 层 | 技术 |
 |---|---|
-| 后端 | Python 3.12, FastAPI, jieba, openai, trafilatura, playwright, beautifulsoup4 |
-| 前端 | TypeScript, React 19, Vite, Tailwind CSS, Zustand |
+| 后端 | Python 3.12, FastAPI, jieba, openai, trafilatura, playwright, beautifulsoup4, mistune |
+| 前端 | TypeScript, React 19, Vite, Tailwind CSS, Zustand, react-markdown |
 | 存储 | JSON 文件 |
 | AI | DeepSeek（兼容 OpenAI 协议，可替换） |
 | 包管理 | uv (Python), npm (Node.js) |
@@ -22,7 +22,8 @@
 ├── services/
 │   ├── tokenizer.py              # jieba 分词 + 概念感知分词 + 词汇表分词
 │   ├── ai.py                     # AsyncOpenAI 客户端（摘要/解释/概念分析）
-│   └── scraper.py                # 网页抓取（静态 + JS 渲染）
+│   ├── scraper.py                # 网页抓取（静态 + JS 渲染）
+│   └── file_parser.py            # 文件格式解析（Markdown 纯文本提取，预留 PDF/Word/Excel/PPT）
 ├── routers/documents.py          # API 路由（文档 + 文本层 + AI 操作 + 统一处理）
 ├── tests/
 │   └── test_tokenizer.py         # 分词单元测试
@@ -38,6 +39,7 @@
 │           ├── Toolbar.tsx            # 工具栏（视图切换 + AI 操作）
 │           ├── TextCanvas.tsx         # 分词文本渲染
 │           ├── SummaryCanvas.tsx      # 摘要文本渲染
+│           ├── OriginFileCanvas.tsx   # 源文件 Markdown 渲染
 │           ├── TokenSpan.tsx          # 单个分词组件
 │           └── TokenActionPanel.tsx   # 侧边栏（样式/关系/操作/AI）
 ```
@@ -83,6 +85,7 @@ cd frontend && npm run dev
 - **AI 解释**：选中一个已转为关系对象的词汇，点击「AI 解释」，AI 会结合上下文对该术语在文中的含义进行解释，生成的关系存储在原文关系中
 - **AI 概念分析**：在摘要视图下，点击「分析概念关系」按钮，AI 自动提取摘要中的关键概念及其语义关系，以结构化列表形式展示（因果/包含/对比/互补/递进/描述）。每个概念的描述也作为独立的关系对象存储，通过 `explains` 关系与概念名关联
 - **网页抓取**：首页支持通过 URL 导入文本。输入网页链接，自动提取标题和正文。对静态页面使用 trafilatura 快速提取，对 JS 动态渲染页面（SPA）自动切换到 Playwright + 系统 Chrome 渲染后再提取
+- **Markdown 文件上传**：首页支持上传 Markdown（.md）文件。上传后自动去除 Markdown 标记得到纯文本用于分词和摘要，原始 Markdown 保存在「源文件」层中，可在阅读页切换查看原始排版。预留 PDF / Word / Excel / PPT 文件格式支持
 
 ## 架构说明：统一词汇与关系
 
@@ -91,7 +94,7 @@ cd frontend && npm run dev
 - **词汇表（Vocabulary）**：文档的 `tokens` 是唯一的词汇来源。每个 TextLayer 不拥有自己的 Token，而是引用文档 Token 的 ID，仅存储该 Token 在层文本中的出现位置（`start_offsets`）
 - **词汇表分词**：摘要生成后使用 `tokenize_with_vocabulary()` 分词。该函数将原文 Token 注册为 jieba 自定义词汇，然后切分摘要文本，确保已存在的 Token 复用相同 ID 和样式。新出现的词自动加入文档词汇表
 - **全局知识库**：关系（Relation）和关系对象（RelationObject）存储在全局的 `knowledge.json` 中，在所有文档间共享。无论在原文视图还是摘要视图编辑关系，修改的都是同一份全局数据。在摘要中为词汇建立的关系，等同于在原文中为该词汇建立关系。对象通过 `belongs_to` 关系标识所属文档，文档本身以 `kind: "document"` 的关系对象表示
-- **层扩展性**：TextLayer 的 `type` 字段支持未来扩展为其他类型（如翻译、改写等），所有层都遵循统一词汇模型
+- **层扩展性**：TextLayer 的 `type` 字段支持未来扩展为其他类型（如翻译、改写等），所有层都遵循统一词汇模型。当前支持 `summary`（摘要层，参与分词和关系系统）和 `origin_file`（源文件层，保存上传文件的原始内容，不参与分词）
 
 ## 产品设计原则
 
@@ -112,8 +115,8 @@ cd frontend && npm run dev
 data/
 ├── knowledge.json          # 全局关系对象与关系（跨文档共享）
 ├── documents/<id>.json     # 文档（原始文本 + 词汇表）
-└── layers/<id>.json        # 文本层（文本 + 位置引用）
-```
+├── layers/<id>.json        # 文本层（文本 + 位置引用 + 元数据）
+└── files/<layer_id>/       # 上传的源文件（PDF/Word 等二进制文件预留）
 
 ### Knowledge（知识库）
 
@@ -137,6 +140,8 @@ data/
   "id": "uuid",
   "title": "标题",
   "original_text": "原文内容…",
+  "source_url": "",
+  "source_type": "text",
   "tokens": [
     { "id": "uuid", "start_offsets": [0, 50], "text": "人工智能", "style_type": "keyword" }
   ],
@@ -144,6 +149,8 @@ data/
   "updated_at": "ISO8601"
 }
 ```
+
+> `source_type` 标识文档来源：`"text"`（手动输入）、`"url"`（网页抓取）、`"file"`（文件上传）。缺省为 `"text"`。
 
 ### TextLayer（文本层）
 
@@ -156,12 +163,15 @@ data/
   "tokens": [
     { "id": "doc_token_uuid", "start_offsets": [5], "text": "人工智能", "style_type": "keyword" }
   ],
+  "metadata": null,
   "created_at": "ISO8601",
   "updated_at": "ISO8601"
 }
 ```
 
 > TextLayer 的 `tokens[].id` 引用 Document 的 Token ID。`start_offsets` 是该 Token 在层文本中的位置。
+>
+> `type` 为 `"origin_file"` 时，`text` 保存文件的原始内容（如 Markdown 源码），`metadata` 包含文件名、MIME 类型等文件信息。此层不参与分词。
 
 ### Token（分词）
 
@@ -256,6 +266,12 @@ data/
 | `POST` | `/api/scrape` | 抓取网页标题和正文（支持静态页面和 JS 渲染页面） |
 
 > 静态页面使用 trafilatura 快速提取。JS 动态渲染的 SPA 页面会自动切换到 Playwright 无头浏览器（需要系统安装 Google Chrome）。
+
+#### 文件上传
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| `POST` | `/api/documents/upload-file` | 上传文件（目前支持 .md），自动去除标记得到纯文本，创建文档 + 源文件层，并执行完整处理流程（摘要 + 概念分析 + 分词）。预留 PDF / Word / Excel / PPT 支持
 
 ### 数据迁移
 

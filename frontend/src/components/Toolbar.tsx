@@ -13,12 +13,14 @@ export default function Toolbar() {
   const setSelectedLayer = useReaderStore((s) => s.setSelectedLayer)
   const setLayers = useReaderStore((s) => s.setLayers)
   const setLayerData = useReaderStore((s) => s.setLayerData)
+  const setOriginFileLayer = useReaderStore((s) => s.setOriginFileLayer)
   const summarizing = useReaderStore((s) => s.summarizing)
   const setSummarizing = useReaderStore((s) => s.setSummarizing)
   const analyzingConcepts = useReaderStore((s) => s.analyzingConcepts)
   const setAnalyzingConcepts = useReaderStore((s) => s.setAnalyzingConcepts)
   const setDocument = useReaderStore((s) => s.setDocument)
   const layers = useReaderStore((s) => s.layers)
+  const originFileLayer = useReaderStore((s) => s.originFileLayer)
 
   useEffect(() => {
     if (!document) return
@@ -29,8 +31,10 @@ export default function Toolbar() {
         setSelectedLayer(summaryLayer.id)
         setLayerData(summaryLayer)
       }
+      const originLayer = ls.find((l) => l.type === 'origin_file')
+      setOriginFileLayer(originLayer || null)
     })
-  }, [document, setLayers, setSelectedLayer, setLayerData])
+  }, [document, setLayers, setSelectedLayer, setLayerData, setOriginFileLayer])
 
   const handleSummarize = useCallback(async () => {
     if (!document) return
@@ -69,7 +73,8 @@ export default function Toolbar() {
   }, [selectedLayerId, setAnalyzingConcepts, setDocument])
 
   const hasSummary = layers.some((l) => l.type === 'summary' && l.text)
-  const showAnalyzeConcepts = viewMode === 'layer' && hasSummary
+  const showAnalyzeConcepts = viewMode === 'summary' && hasSummary
+  const hasOriginFile = originFileLayer !== null
 
   return (
     <div className="flex items-center gap-3 p-3 border-b bg-white shrink-0">
@@ -81,9 +86,11 @@ export default function Toolbar() {
       </button>
 
       <div className="flex items-center gap-1 border rounded overflow-hidden">
-        {(['original', 'layer'] as const).map((mode) => {
-          const labels: Record<string, string> = { original: '原文', layer: '摘要' }
-          const disabled = mode !== 'original' && !hasSummary
+        {(['original', 'origin_file', 'summary'] as const).map((mode) => {
+          const labels: Record<string, string> = { original: '原文', origin_file: '源文件', summary: '摘要' }
+          const disabled =
+            (mode === 'origin_file' && !hasOriginFile) ||
+            (mode === 'summary' && !hasSummary)
           return (
             <button
               key={mode}

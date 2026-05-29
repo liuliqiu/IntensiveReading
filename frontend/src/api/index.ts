@@ -36,6 +36,7 @@ export async function createDocument(
 export interface ProcessDocumentResult {
   document: Document
   summary_layer: TextLayer
+  origin_file_layer?: TextLayer | null
 }
 
 export async function processDocument(
@@ -158,4 +159,18 @@ export async function explainObject(
     method: 'POST',
     body: JSON.stringify({ context_window: contextWindow }),
   })
+}
+
+export async function uploadFile(file: File): Promise<ProcessDocumentResult> {
+  const formData = new FormData()
+  formData.append('file', file)
+  const res = await fetch(`${BASE}/documents/upload-file`, {
+    method: 'POST',
+    body: formData,
+  })
+  if (!res.ok) {
+    const detail = (await res.json().catch(() => ({}))).detail || res.statusText
+    throw new Error(detail)
+  }
+  return res.json()
 }

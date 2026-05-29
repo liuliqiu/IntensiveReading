@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data", "documents")
 LAYERS_DIR = os.path.join(os.path.dirname(__file__), "data", "layers")
+FILES_DIR = os.path.join(os.path.dirname(__file__), "data", "files")
 KNOWLEDGE_PATH = os.path.join(os.path.dirname(__file__), "data", "knowledge.json")
 
 _lock = threading.RLock()
@@ -14,6 +15,7 @@ _lock = threading.RLock()
 def init():
     os.makedirs(DATA_DIR, exist_ok=True)
     os.makedirs(LAYERS_DIR, exist_ok=True)
+    os.makedirs(FILES_DIR, exist_ok=True)
     _migrate_docs_to_knowledge()
     _migrate_remove_token_and_doc_id()
 
@@ -489,3 +491,24 @@ def delete_layer(layer_id: str):
         lp = _layer_path(layer_id)
         if os.path.exists(lp):
             os.remove(lp)
+
+
+# ── Uploaded file storage ──
+
+def save_uploaded_file(layer_id: str, filename: str, content: bytes) -> str:
+    """Save uploaded file to disk, return the file path relative to the project.
+    Future binary files (PDF, Word, etc.) use this path in layer metadata."""
+    safe_name = os.path.basename(filename)
+    dest_dir = os.path.join(FILES_DIR, layer_id)
+    os.makedirs(dest_dir, exist_ok=True)
+    dest_path = os.path.join(dest_dir, safe_name)
+    with open(dest_path, "wb") as f:
+        f.write(content)
+    return dest_path
+
+
+def get_file_path(file_path: str) -> str | None:
+    """Return absolute path of a saved uploaded file, or None if not found."""
+    if os.path.exists(file_path):
+        return file_path
+    return None

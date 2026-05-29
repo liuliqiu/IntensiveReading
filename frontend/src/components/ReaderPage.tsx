@@ -6,6 +6,7 @@ import type { ProcessDocumentResult } from '../api'
 import Toolbar from './Toolbar'
 import TextCanvas from './TextCanvas'
 import SummaryCanvas from './SummaryCanvas'
+import OriginFileCanvas from './OriginFileCanvas'
 import TokenActionPanel from './TokenActionPanel'
 
 export default function ReaderPage() {
@@ -21,6 +22,7 @@ export default function ReaderPage() {
   const setDocument = useReaderStore((s) => s.setDocument)
   const setLayers = useReaderStore((s) => s.setLayers)
   const setLayerData = useReaderStore((s) => s.setLayerData)
+  const setOriginFileLayer = useReaderStore((s) => s.setOriginFileLayer)
   const setLoading = useReaderStore((s) => s.setLoading)
   const setError = useReaderStore((s) => s.setError)
 
@@ -28,9 +30,14 @@ export default function ReaderPage() {
     if (!id) return
 
     if (preloaded.current && preloaded.current.document.id === id) {
-      const { document: doc, summary_layer: layer } = preloaded.current
+      const { document: doc, summary_layer: layer, origin_file_layer: originLayer } = preloaded.current
       setDocument(doc)
-      setLayers([layer])
+      const allLayers = [layer]
+      if (originLayer) {
+        allLayers.push(originLayer)
+        setOriginFileLayer(originLayer)
+      }
+      setLayers(allLayers)
       setLayerData(layer)
       setLoading(false)
       preloaded.current = null
@@ -50,10 +57,16 @@ export default function ReaderPage() {
         if (summaryLayer) {
           setLayerData(summaryLayer)
         }
+        const originLayer = layers.find((l) => l.type === 'origin_file' && l.text)
+        if (originLayer) {
+          setOriginFileLayer(originLayer)
+        } else {
+          setOriginFileLayer(null)
+        }
       })
       .catch((e) => setError(e instanceof Error ? e.message : '加载失败'))
       .finally(() => setLoading(false))
-  }, [id, setDocument, setLayers, setLayerData, setLoading, setError])
+  }, [id, setDocument, setLayers, setLayerData, setOriginFileLayer, setLoading, setError])
 
   if (loading) {
     return (
@@ -87,9 +100,13 @@ export default function ReaderPage() {
             {document.source_url}
           </a>
         )}
-        {viewMode === 'layer' ? (
+        {viewMode === 'summary' ? (
           <div className="flex-1 overflow-y-auto">
             <SummaryCanvas />
+          </div>
+        ) : viewMode === 'origin_file' ? (
+          <div className="flex-1 overflow-y-auto">
+            <OriginFileCanvas />
           </div>
         ) : (
           <div className="flex-1 overflow-y-auto">

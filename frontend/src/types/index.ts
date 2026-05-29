@@ -9,7 +9,7 @@ export interface RelationObject {
   id: string
   text?: string | null
   kind?: string | null
-  metadata?: Record<string, any> | null
+  metadata?: Record<string, unknown> | null
 }
 
 export interface Knowledge {
@@ -40,6 +40,7 @@ export interface Document {
   title: string
   original_text: string
   source_url?: string
+  source_type?: string
   tokens: Token[]
   relation_objects: RelationObject[]
   relations: Relation[]
@@ -91,14 +92,16 @@ export interface TextLayer {
   type: string
   text: string
   tokens: Token[]
+  metadata?: Record<string, unknown> | null
   created_at: string
   updated_at: string
 }
 
-export const LAYER_TYPES = ['summary'] as const
+export const LAYER_TYPES = ['summary', 'origin_file'] as const
 
 export const LAYER_LABELS: Record<string, string> = {
   summary: '摘要',
+  origin_file: '源文件',
 }
 
-export type ViewMode = 'original' | 'layer'
+export type ViewMode = 'original' | 'summary' | 'origin_file'

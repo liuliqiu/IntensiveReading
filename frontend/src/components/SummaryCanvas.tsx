@@ -29,7 +29,7 @@ export default function SummaryCanvas() {
   const { conceptObjects, conceptRelations } = useMemo(() => {
     const docId = document?.id
     const docObj = relationObjects.find((ro) => ro.kind === 'document' && ro.metadata?.document_id === docId)
-    let belongsToIds = new Set<string>()
+    const belongsToIds = new Set<string>()
     if (docObj) {
       for (const rel of relations) {
         if (rel.type === 'belongs_to') {
