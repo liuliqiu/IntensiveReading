@@ -67,6 +67,7 @@ export default function GraphPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showBelongsTo, setShowBelongsTo] = useState(false)
+  const [selectedComponentIdx, setSelectedComponentIdx] = useState<number | null>(null)
   const [nodes, setNodes] = useState<GraphNode[]>([])
   const [tick, setTick] = useState(0)
   const [hoveredNode, setHoveredNode] = useState<string | null>(null)
@@ -84,6 +85,10 @@ export default function GraphPage() {
       .catch((e) => setError(e instanceof Error ? e.message : '加载失败'))
       .finally(() => setLoading(false))
   }, [])
+
+  useEffect(() => {
+    setSelectedComponentIdx(null)
+  }, [showBelongsTo])
 
   const relationObjects = useMemo(() => knowledge?.relation_objects ?? [], [knowledge])
   const allRelations = useMemo(() => knowledge?.relations ?? [], [knowledge])
@@ -104,11 +109,72 @@ export default function GraphPage() {
     return counts
   }, [allRelations])
 
+  const components = useMemo(() => {
+    const adj = new Map<string, string[]>()
+    const nodeIds = new Set<string>()
+    for (const r of relations) {
+      const ids = r.members.filter((m) => m.kind === 'object').map((m) => m.id)
+      for (const id of ids) nodeIds.add(id)
+      for (let i = 0; i < ids.length; i++) {
+        for (let j = i + 1; j < ids.length; j++) {
+          if (!adj.has(ids[i])) adj.set(ids[i], [])
+          if (!adj.has(ids[j])) adj.set(ids[j], [])
+          adj.get(ids[i])!.push(ids[j])
+          adj.get(ids[j])!.push(ids[i])
+        }
+      }
+    }
+    const visited = new Set<string>()
+    const comps: string[][] = []
+    for (const start of nodeIds) {
+      if (visited.has(start)) continue
+      const comp: string[] = []
+      const queue = [start]
+      visited.add(start)
+      while (queue.length > 0) {
+        const cur = queue.shift()!
+        comp.push(cur)
+        for (const nb of adj.get(cur) ?? []) {
+          if (!visited.has(nb)) {
+            visited.add(nb)
+            queue.push(nb)
+          }
+        }
+      }
+      comps.push(comp)
+    }
+    return comps
+  }, [relations])
+
+  const componentLabels = useMemo(() => {
+    const objMap = new Map(relationObjects.map((o) => [o.id, o]))
+    return components.map((comp) => {
+      const docNodeId = comp.find((id) => objMap.get(id)?.kind === 'document')
+      const nodeId = docNodeId ?? comp.reduce((best, id) => {
+        const bc = relationCounts.get(best) ?? 0
+        const cc = relationCounts.get(id) ?? 0
+        return cc > bc ? id : best
+      }, comp[0])
+      const obj = objMap.get(nodeId)
+      const label = obj
+        ? getNodeLabel({ id: obj.id, text: obj.text ?? null, kind: obj.kind ?? null, x: 0, y: 0 })
+        : nodeId.slice(0, 8)
+      return `${label}（${comp.length} 对象）`
+    })
+  }, [components, relationObjects, relationCounts])
+
   useEffect(() => {
     const objectSet = new Set<string>()
     for (const r of relations) {
       for (const m of r.members) {
         if (m.kind === 'object') objectSet.add(m.id)
+      }
+    }
+
+    if (selectedComponentIdx !== null && selectedComponentIdx < components.length) {
+      const compSet = new Set(components[selectedComponentIdx])
+      for (const id of [...objectSet]) {
+        if (!compSet.has(id)) objectSet.delete(id)
       }
     }
 
@@ -166,7 +232,7 @@ export default function GraphPage() {
     return () => {
       sim.stop()
     }
-  }, [relationObjects, relations])
+  }, [relationObjects, relations, selectedComponentIdx, components])
 
   const connectedIds = useMemo(() => {
     if (!hoveredNode && !hoveredEdge) return { nodes: new Set<string>(), edges: new Set<string>() }
@@ -312,6 +378,23 @@ export default function GraphPage() {
         </button>
         <h1 className="text-lg font-semibold text-gray-800">关系图谱</h1>
         <div className="flex-1" />
+        {components.length > 1 && (
+          <select
+            value={selectedComponentIdx === null ? '' : selectedComponentIdx}
+            onChange={(e) => {
+              const v = e.target.value
+              setSelectedComponentIdx(v === '' ? null : Number(v))
+            }}
+            className="text-xs border rounded px-2 py-1 bg-white text-gray-700"
+          >
+            <option value="">全部（{nodes.length} 对象）</option>
+            {componentLabels.map((label, i) => (
+              <option key={i} value={i}>
+                团 {i + 1}：{label}
+              </option>
+            ))}
+          </select>
+        )}
         <div className="flex items-center gap-4 text-xs">
           <label className="flex items-center gap-1.5 text-gray-600 cursor-pointer select-none">
             <input
