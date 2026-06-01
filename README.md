@@ -7,7 +7,7 @@
 | 层 | 技术 |
 |---|---|
 | 后端 | Python 3.12, FastAPI, jieba, openai, trafilatura, playwright, beautifulsoup4, mistune |
-| 前端 | TypeScript, React 19, Vite, Tailwind CSS, Zustand, react-markdown |
+| 前端 | TypeScript, React 19, Vite, Tailwind CSS, Zustand, react-markdown, d3-force |
 | 存储 | JSON 文件 |
 | AI | DeepSeek（兼容 OpenAI 协议，可替换） |
 | 包管理 | uv (Python), npm (Node.js) |
@@ -63,6 +63,7 @@
 │           ├── App.tsx                # 路由配置
 │           ├── HomePage.tsx           # 首页（文档列表 + 上传）
 │           ├── ReaderPage.tsx         # 阅读页（原文/摘要切换）
+│           ├── GraphPage.tsx          # 关系图谱页（力导向布局可视化）
 │           ├── Toolbar.tsx            # 工具栏（视图切换 + AI 操作）
 │           ├── TextCanvas.tsx         # 分词文本渲染
 │           ├── SummaryCanvas.tsx      # 摘要文本渲染
@@ -115,6 +116,7 @@ cd frontend && npm run dev
 - **Markdown 文件上传**：首页支持上传 Markdown（.md）文件。上传后自动去除 Markdown 标记得到纯文本用于分词和摘要，原始 Markdown 保存在「源文件」层中，可在阅读页切换查看原始排版。预留 PDF / Word / Excel / PPT 文件格式支持
 - **标题编辑**：首页文档列表和阅读页工具栏均支持点击标题进行内联编辑，修改自动同步到知识库中的文档对象
 - **标签管理**：支持为文档添加标签（自由文本，回车添加）。首页文档列表展示标签（只读），阅读页工具栏支持添加和删除标签
+- **关系图谱**：全局关系可视化页面，以力导向布局展示所有关系对象（节点）和关系（连线）。按对象类型着色（文档/手动/AI概念/AI解释等），支持缩放、拖拽节点、悬停高亮关联关系。「属于」关系默认隐藏，可切换显示
 
 ## 架构说明：统一词汇与关系
 

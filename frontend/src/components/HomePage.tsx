@@ -93,7 +93,15 @@ export default function HomePage() {
 
   return (
     <div className="max-w-3xl mx-auto p-6">
-      <h1 className="text-3xl font-bold mb-8">精读</h1>
+      <h1 className="text-3xl font-bold mb-8 flex items-center justify-between">
+        精读
+        <button
+          onClick={() => navigate('/graph')}
+          className="text-sm font-normal px-3 py-1.5 bg-purple-600 text-white rounded hover:bg-purple-700 transition-colors"
+        >
+          关系图谱
+        </button>
+      </h1>
 
       <div className="mb-10 p-6 border rounded-lg bg-white shadow-sm">
         <h2 className="text-lg font-semibold mb-4">上传新文本</h2>
