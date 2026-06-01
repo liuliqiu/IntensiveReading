@@ -41,6 +41,7 @@ export interface Document {
   original_text: string
   source_url?: string
   source_type?: string
+  tags: string[]
   tokens: Token[]
   relation_objects: RelationObject[]
   relations: Relation[]
@@ -51,6 +52,7 @@ export interface Document {
 export interface DocumentListItem {
   id: string
   title: string
+  tags: string[]
   token_count: number
   created_at: string
   updated_at: string

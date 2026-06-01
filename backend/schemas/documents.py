@@ -10,10 +10,19 @@ class DocumentCreate(BaseModel):
     original_text: str
     source_url: str = ""
     source_type: str = "text"
+    tags: list[str] = []
 
 
 class DocumentUpdate(BaseModel):
     tokens: list[TokenSchema]
+
+
+class DocumentTitleUpdate(BaseModel):
+    title: str
+
+
+class DocumentTagsUpdate(BaseModel):
+    tags: list[str]
 
 
 class TokenSplitRequest(BaseModel):
@@ -26,6 +35,7 @@ class DocumentOut(BaseModel):
     original_text: str
     source_url: str = ""
     source_type: str = "text"
+    tags: list[str] = []
     created_at: str
     updated_at: str
     tokens: list[TokenSchema]
@@ -39,6 +49,7 @@ class DocumentOut(BaseModel):
 class DocumentListItem(BaseModel):
     id: str
     title: str
+    tags: list[str] = []
     token_count: int
     created_at: str
     updated_at: str

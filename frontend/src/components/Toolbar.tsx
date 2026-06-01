@@ -1,7 +1,7 @@
-import { useCallback, useEffect } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useReaderStore } from '../store'
-import { createLayer, fetchLayers, summarizeLayer, analyzeConcepts } from '../api'
+import { createLayer, fetchLayers, summarizeLayer, analyzeConcepts, updateDocumentTitle, updateDocumentTags } from '../api'
 
 export default function Toolbar() {
   const navigate = useNavigate()
@@ -19,8 +19,14 @@ export default function Toolbar() {
   const analyzingConcepts = useReaderStore((s) => s.analyzingConcepts)
   const setAnalyzingConcepts = useReaderStore((s) => s.setAnalyzingConcepts)
   const setDocument = useReaderStore((s) => s.setDocument)
+  const setDocumentTitle = useReaderStore((s) => s.setDocumentTitle)
+  const setDocumentTags = useReaderStore((s) => s.setDocumentTags)
   const layers = useReaderStore((s) => s.layers)
   const originFileLayer = useReaderStore((s) => s.originFileLayer)
+
+  const [editingTitle, setEditingTitle] = useState(false)
+  const [titleValue, setTitleValue] = useState('')
+  const [tagInput, setTagInput] = useState('')
 
   useEffect(() => {
     if (!document) return
@@ -72,6 +78,58 @@ export default function Toolbar() {
     }
   }, [selectedLayerId, setAnalyzingConcepts, setDocument])
 
+  const handleSaveTitle = useCallback(async () => {
+    if (!document) return
+    const trimmed = titleValue.trim()
+    if (!trimmed || trimmed === document.title) {
+      setEditingTitle(false)
+      return
+    }
+    try {
+      const result = await updateDocumentTitle(document.id, trimmed)
+      setDocumentTitle(result.title)
+    } catch {
+      // ignore
+    }
+    setEditingTitle(false)
+  }, [document, titleValue, setDocumentTitle])
+
+  const startEditTitle = useCallback(() => {
+    if (!document) return
+    setTitleValue(document.title)
+    setEditingTitle(true)
+  }, [document])
+
+  const handleAddTag = useCallback(async () => {
+    if (!document) return
+    const newTag = tagInput.trim()
+    if (!newTag) return
+    const currentTags = document.tags ?? []
+    if (currentTags.includes(newTag)) {
+      setTagInput('')
+      return
+    }
+    const newTags = [...currentTags, newTag]
+    try {
+      const result = await updateDocumentTags(document.id, newTags)
+      setDocumentTags(result.tags)
+    } catch {
+      // ignore
+    }
+    setTagInput('')
+  }, [document, tagInput, setDocumentTags])
+
+  const handleRemoveTag = useCallback(async (tag: string) => {
+    if (!document) return
+    const newTags = (document.tags ?? []).filter((t) => t !== tag)
+    try {
+      const result = await updateDocumentTags(document.id, newTags)
+      setDocumentTags(result.tags)
+    } catch {
+      // ignore
+    }
+  }, [document, setDocumentTags])
+
   const hasSummary = layers.some((l) => l.type === 'summary' && l.text)
   const showAnalyzeConcepts = viewMode === 'summary' && hasSummary
   const hasOriginFile = originFileLayer !== null
@@ -110,8 +168,50 @@ export default function Toolbar() {
         })}
       </div>
 
-      <div className="flex-1 text-sm font-medium text-gray-700 truncate">
-        {document?.title}
+      <div className="flex-1 flex flex-col gap-1 min-w-0">
+        {editingTitle ? (
+          <input
+            autoFocus
+            value={titleValue}
+            onChange={(e) => setTitleValue(e.target.value)}
+            onBlur={handleSaveTitle}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleSaveTitle()
+              if (e.key === 'Escape') setEditingTitle(false)
+            }}
+            className="text-sm font-medium border rounded px-1 py-0.5 w-full"
+          />
+        ) : (
+          <div
+            className="text-sm font-medium text-gray-700 truncate cursor-pointer hover:text-blue-600"
+            onClick={startEditTitle}
+            title="点击编辑标题"
+          >
+            {document?.title}
+          </div>
+        )}
+        <div className="flex items-center gap-1 flex-wrap">
+          {(document?.tags ?? []).map((tag) => (
+            <span key={tag} className="inline-flex items-center text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded gap-0.5">
+              {tag}
+              <button
+                onClick={() => handleRemoveTag(tag)}
+                className="text-blue-400 hover:text-red-500 leading-none"
+              >
+                ×
+              </button>
+            </span>
+          ))}
+          <input
+            value={tagInput}
+            onChange={(e) => setTagInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleAddTag()
+            }}
+            placeholder="+ 标签"
+            className="text-xs border border-dashed rounded px-1.5 py-0.5 w-16 focus:w-24 transition-all outline-none"
+          />
+        </div>
       </div>
 
       <div className="flex items-center gap-2">

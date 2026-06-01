@@ -39,6 +39,8 @@ interface ReaderState {
   layerSelectedTokenId: string | null
 
   setDocument: (doc: Document) => void
+  setDocumentTitle: (title: string) => void
+  setDocumentTags: (tags: string[]) => void
   setTokens: (tokens: Token[]) => void
   setRelationObjects: (ros: RelationObject[]) => void
   setRelations: (relations: Relation[]) => void
@@ -97,6 +99,16 @@ export const useReaderStore = create<ReaderState>((set) => ({
   layerSelectedTokenId: null,
 
   setDocument: (doc) => set({ document: doc, tokens: [...doc.tokens], relation_objects: [...doc.relation_objects], relations: [...doc.relations] }),
+
+  setDocumentTitle: (title: string) =>
+    set((state) => ({
+      document: state.document ? { ...state.document, title } : null,
+    })),
+
+  setDocumentTags: (tags: string[]) =>
+    set((state) => ({
+      document: state.document ? { ...state.document, tags } : null,
+    })),
 
   setTokens: (tokens) => set({ tokens }),
   setRelationObjects: (relation_objects) => set({ relation_objects }),

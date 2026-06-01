@@ -5,6 +5,7 @@ import os
 from fastapi import APIRouter, HTTPException, UploadFile, File
 from backend.schemas.documents import (
     DocumentCreate, DocumentOut, DocumentListItem, DocumentUpdate,
+    DocumentTitleUpdate, DocumentTagsUpdate,
     TokenSplitRequest, DocumentProcessResponse,
 )
 from backend.schemas.layers import TextLayerOut
@@ -16,7 +17,7 @@ from backend.storage import (
 from backend.services.tokenizer import tokenize_and_merge, tokenize_with_vocabulary, tokenize_with_concepts
 from backend.services.file_parser import get_parser
 from backend.routers._helpers import (
-    ensure_doc_object, create_belongs_to_rels,
+    ensure_doc_object, create_belongs_to_rels, update_doc_object_title,
     validate_tokens_cover_text, doc_to_out, layer_to_out,
 )
 
@@ -34,6 +35,7 @@ def create_document(doc: DocumentCreate):
         "original_text": doc.original_text,
         "source_url": doc.source_url,
         "source_type": doc.source_type,
+        "tags": doc.tags,
         "created_at": now, "updated_at": now,
         "tokens": [
             {
@@ -139,6 +141,7 @@ async def process_document(doc: DocumentCreate):
         "original_text": doc.original_text,
         "source_url": doc.source_url,
         "source_type": doc.source_type,
+        "tags": doc.tags,
         "created_at": now, "updated_at": now,
         "tokens": [],
     }
@@ -192,7 +195,7 @@ async def upload_file(file: UploadFile = File(...)):
 
     document = {
         "id": doc_id, "title": title, "original_text": plain_text,
-        "source_url": "", "source_type": "file",
+        "source_url": "", "source_type": "file", "tags": [],
         "created_at": now, "updated_at": now, "tokens": [],
     }
     save_document(document)
@@ -246,6 +249,7 @@ def list_documents_route():
     return [
         DocumentListItem(
             id=d["id"], title=d["title"],
+            tags=d.get("tags", []),
             token_count=len(d.get("tokens", [])),
             created_at=d["created_at"], updated_at=d["updated_at"],
         )
@@ -270,6 +274,31 @@ def update_document(doc_id: str, body: DocumentUpdate):
     validate_tokens_cover_text(body.tokens, doc["original_text"])
 
     doc["tokens"] = [t.model_dump() for t in body.tokens]
+    doc["updated_at"] = utcnow()
+    save_document(doc)
+    return doc_to_out(doc)
+
+
+@router.patch("/documents/{doc_id}/title", response_model=DocumentOut)
+def update_document_title(doc_id: str, body: DocumentTitleUpdate):
+    doc = get_document(doc_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if not body.title.strip():
+        raise HTTPException(status_code=400, detail="Title must not be empty")
+    doc["title"] = body.title.strip()
+    doc["updated_at"] = utcnow()
+    save_document(doc)
+    update_doc_object_title(doc_id, doc["title"])
+    return doc_to_out(doc)
+
+
+@router.patch("/documents/{doc_id}/tags", response_model=DocumentOut)
+def update_document_tags(doc_id: str, body: DocumentTagsUpdate):
+    doc = get_document(doc_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    doc["tags"] = [t.strip() for t in body.tags if t.strip()]
     doc["updated_at"] = utcnow()
     save_document(doc)
     return doc_to_out(doc)

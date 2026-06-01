@@ -24,6 +24,16 @@ def ensure_doc_object(doc_id: str, doc_title: str) -> str:
     return obj_id
 
 
+def update_doc_object_title(doc_id: str, new_title: str):
+    knowledge = get_knowledge()
+    for ro in knowledge.get("relation_objects", []):
+        if ro.get("kind") == "document" and ro.get("metadata", {}).get("document_id") == doc_id:
+            ro["text"] = new_title
+            save_knowledge(knowledge)
+            return
+    ensure_doc_object(doc_id, new_title)
+
+
 def create_belongs_to_rels(object_ids: list[str], doc_obj_id: str) -> list[dict]:
     return [{
         "id": gen_id(),
@@ -94,6 +104,7 @@ def doc_to_out(doc: dict) -> DocumentOut:
         original_text=doc["original_text"],
         source_url=doc.get("source_url", ""),
         source_type=doc.get("source_type", "text"),
+        tags=doc.get("tags", []),
         created_at=doc["created_at"],
         updated_at=doc["updated_at"],
         tokens=[TokenSchema(**{k: v for k, v in t.items() if k != "ref_type"}) for t in doc["tokens"]],

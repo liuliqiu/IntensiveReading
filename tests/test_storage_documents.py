@@ -148,3 +148,36 @@ def test_find_token_doc_id_not_found(monkeypatch, tmp_path):
     storage.save_document(make_doc())
     result = storage.find_token_doc_id("nonexistent")
     assert result is None
+
+
+def test_update_title(monkeypatch, tmp_path):
+    _setup_temp_storage(monkeypatch, tmp_path)
+    doc = make_doc()
+    storage.save_document(doc)
+    doc["title"] = "New Title"
+    doc["updated_at"] = storage.utcnow()
+    storage.save_document(doc)
+    result = storage.get_document("d1")
+    assert result is not None
+    assert result["title"] == "New Title"
+
+
+def test_update_tags(monkeypatch, tmp_path):
+    _setup_temp_storage(monkeypatch, tmp_path)
+    doc = make_doc()
+    storage.save_document(doc)
+    doc["tags"] = ["AI", "技术"]
+    doc["updated_at"] = storage.utcnow()
+    storage.save_document(doc)
+    result = storage.get_document("d1")
+    assert result is not None
+    assert result["tags"] == ["AI", "技术"]
+
+
+def test_tags_default_empty(monkeypatch, tmp_path):
+    _setup_temp_storage(monkeypatch, tmp_path)
+    doc = make_doc()
+    storage.save_document(doc)
+    result = storage.get_document("d1")
+    assert result is not None
+    assert result.get("tags") is None or result.get("tags") == []

@@ -113,6 +113,8 @@ cd frontend && npm run dev
 - **AI 概念分析**：在摘要视图下，点击「分析概念关系」按钮，AI 自动提取摘要中的关键概念及其语义关系，以结构化列表形式展示（因果/包含/对比/互补/递进/描述）。每个概念的描述也作为独立的关系对象存储，通过 `explains` 关系与概念名关联
 - **网页抓取**：首页支持通过 URL 导入文本。输入网页链接，自动提取标题和正文。对静态页面使用 trafilatura 快速提取，对 JS 动态渲染页面（SPA）自动切换到 Playwright + 系统 Chrome 渲染后再提取
 - **Markdown 文件上传**：首页支持上传 Markdown（.md）文件。上传后自动去除 Markdown 标记得到纯文本用于分词和摘要，原始 Markdown 保存在「源文件」层中，可在阅读页切换查看原始排版。预留 PDF / Word / Excel / PPT 文件格式支持
+- **标题编辑**：首页文档列表和阅读页工具栏均支持点击标题进行内联编辑，修改自动同步到知识库中的文档对象
+- **标签管理**：支持为文档添加标签（自由文本，回车添加）。首页文档列表展示标签（只读），阅读页工具栏支持添加和删除标签
 
 ## 架构说明：统一词汇与关系
 
@@ -169,6 +171,7 @@ data/
   "original_text": "原文内容…",
   "source_url": "",
   "source_type": "text",
+  "tags": ["标签1", "标签2"],
   "tokens": [
     { "id": "uuid", "start_offsets": [0, 50], "text": "人工智能", "style_type": "keyword" }
   ],
@@ -255,6 +258,8 @@ data/
 | `GET` | `/api/documents` | 文档列表 |
 | `GET` | `/api/documents/:id` | 获取文档完整数据 |
 | `PUT` | `/api/documents/:id` | 保存文档（仅 tokens） |
+| `PATCH` | `/api/documents/:id/title` | 更新文档标题 |
+| `PATCH` | `/api/documents/:id/tags` | 更新文档标签 |
 | `POST` | `/api/tokens/:id/split` | 拆分指定 Token |
 
 #### 文本层

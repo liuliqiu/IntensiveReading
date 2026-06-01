@@ -60,6 +60,26 @@ export async function saveDocument(
   })
 }
 
+export async function updateDocumentTitle(
+  documentId: string,
+  title: string,
+): Promise<Document> {
+  return request(`/documents/${documentId}/title`, {
+    method: 'PATCH',
+    body: JSON.stringify({ title }),
+  })
+}
+
+export async function updateDocumentTags(
+  documentId: string,
+  tags: string[],
+): Promise<Document> {
+  return request(`/documents/${documentId}/tags`, {
+    method: 'PATCH',
+    body: JSON.stringify({ tags }),
+  })
+}
+
 export async function fetchKnowledge(): Promise<Knowledge> {
   return request('/knowledge')
 }
