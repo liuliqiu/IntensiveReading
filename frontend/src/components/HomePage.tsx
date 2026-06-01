@@ -1,78 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { fetchDocuments, processDocument, scrapeUrl, uploadFile, updateDocumentTitle } from '../api'
+import { fetchDocuments, processDocument, scrapeUrl, uploadFile } from '../api'
 import type { DocumentListItem } from '../types'
 
 type InputMode = 'manual' | 'url' | 'file'
-
-function DocListItem({ doc, onOpen, onUpdate }: {
-  doc: DocumentListItem
-  onOpen: () => void
-  onUpdate: (doc: DocumentListItem) => void
-}) {
-  const [editing, setEditing] = useState(false)
-  const [titleValue, setTitleValue] = useState(doc.title)
-
-  const handleSave = async () => {
-    const trimmed = titleValue.trim()
-    if (!trimmed || trimmed === doc.title) {
-      setEditing(false)
-      setTitleValue(doc.title)
-      return
-    }
-    try {
-      const result = await updateDocumentTitle(doc.id, trimmed)
-      onUpdate({ ...doc, title: result.title, updated_at: result.updated_at })
-    } catch {
-      setTitleValue(doc.title)
-    }
-    setEditing(false)
-  }
-
-  return (
-    <li className="flex items-center justify-between p-3 border rounded hover:bg-gray-50">
-      <div className="flex-1 min-w-0" onClick={onOpen} style={{ cursor: 'pointer' }}>
-        {editing ? (
-          <input
-            autoFocus
-            value={titleValue}
-            onChange={(e) => setTitleValue(e.target.value)}
-            onBlur={handleSave}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') handleSave()
-              if (e.key === 'Escape') { setEditing(false); setTitleValue(doc.title) }
-            }}
-            onClick={(e) => e.stopPropagation()}
-            className="font-medium text-sm border rounded px-1 py-0.5 w-full"
-          />
-        ) : (
-          <div
-            className="font-medium text-sm truncate"
-            onClick={(e) => { e.stopPropagation(); setEditing(true) }}
-            title="点击编辑标题"
-          >
-            {doc.title}
-          </div>
-        )}
-        <div className="text-xs text-gray-500 mt-0.5">
-          {doc.token_count} 个分词
-        </div>
-        {(doc.tags ?? []).length > 0 && (
-          <div className="flex flex-wrap gap-1 mt-1">
-            {(doc.tags ?? []).map((tag) => (
-              <span key={tag} className="inline-block text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">
-                {tag}
-              </span>
-            ))}
-          </div>
-        )}
-      </div>
-      <div className="text-xs text-gray-400 shrink-0 ml-3" onClick={onOpen} style={{ cursor: 'pointer' }}>
-        {new Date(doc.updated_at).toLocaleString('zh-CN')}
-      </div>
-    </li>
-  )
-}
 
 export default function HomePage() {
   const navigate = useNavigate()
@@ -312,12 +243,30 @@ export default function HomePage() {
         )}
         <ul className="space-y-2">
           {docs.map((d) => (
-            <DocListItem
+            <li
               key={d.id}
-              doc={d}
-              onOpen={() => navigate(`/reader/${d.id}`)}
-              onUpdate={(updated) => setDocs((prev) => prev.map((x) => (x.id === updated.id ? updated : x)))}
-            />
+              className="flex items-center justify-between p-3 border rounded hover:bg-gray-50 cursor-pointer"
+              onClick={() => navigate(`/reader/${d.id}`)}
+            >
+              <div className="flex-1 min-w-0">
+                <div className="font-medium text-sm truncate">{d.title}</div>
+                <div className="text-xs text-gray-500 mt-0.5">
+                  {d.token_count} 个分词
+                </div>
+                {(d.tags ?? []).length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {(d.tags ?? []).map((tag) => (
+                      <span key={tag} className="inline-block text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="text-xs text-gray-400 shrink-0 ml-3">
+                {new Date(d.updated_at).toLocaleString('zh-CN')}
+              </div>
+            </li>
           ))}
         </ul>
       </div>
