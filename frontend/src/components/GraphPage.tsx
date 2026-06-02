@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   forceSimulation,
   forceLink,
@@ -60,8 +60,12 @@ function getNodeLabel(n: GraphNode): string {
 
 export default function GraphPage() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const focusNodeId = searchParams.get('focus')
   const svgRef = useRef<SVGSVGElement>(null)
   const simulationRef = useRef<d3.Simulation<GraphNode, GraphEdge> | null>(null)
+  const focusAppliedRef = useRef<string | null>(null)
+  const centeredRef = useRef(false)
 
   const [knowledge, setKnowledge] = useState<Knowledge | null>(null)
   const [loading, setLoading] = useState(true)
@@ -162,6 +166,35 @@ export default function GraphPage() {
       return `${label}（${comp.length} 对象）`
     })
   }, [components, relationObjects, relationCounts])
+
+  useEffect(() => {
+    if (!focusNodeId) return
+    if (focusAppliedRef.current === focusNodeId) return
+    if (components.length === 0) return
+    const compIdx = components.findIndex((comp) => comp.includes(focusNodeId))
+    if (compIdx === -1) return
+    setSelectedComponentIdx(compIdx)
+    focusAppliedRef.current = focusNodeId
+    centeredRef.current = false
+  }, [focusNodeId, components])
+
+  useEffect(() => {
+    if (!focusNodeId) return
+    if (selectedComponentIdx === null) return
+    if (centeredRef.current) return
+    const target = nodes.find((n) => n.id === focusNodeId)
+    if (!target) return
+    if (target.x === 0 && target.y === 0) return
+    centeredRef.current = true
+    const svg = svgRef.current
+    if (!svg) return
+    const rect = svg.getBoundingClientRect()
+    setZoom({
+      x: rect.width / 2 - target.x,
+      y: rect.height / 2 - target.y,
+      scale: 1,
+    })
+  }, [focusNodeId, selectedComponentIdx, nodes, tick])
 
   useEffect(() => {
     const objectSet = new Set<string>()
@@ -384,6 +417,8 @@ export default function GraphPage() {
             onChange={(e) => {
               const v = e.target.value
               setSelectedComponentIdx(v === '' ? null : Number(v))
+              focusAppliedRef.current = null
+              centeredRef.current = true
             }}
             className="text-xs border rounded px-2 py-1 bg-white text-gray-700"
           >

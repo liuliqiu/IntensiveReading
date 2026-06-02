@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import type { Relation, RelationMember, RelationObject, Token } from '../types'
 import { STYLE_TYPES, STYLE_LABELS, RELATION_TYPES, RELATION_LABELS } from '../types'
 import { useReaderStore } from '../store'
@@ -29,6 +30,7 @@ export default function TokenActionPanel() {
 }
 
 function TokenDetail({ token, isLayerView }: { token: Token; isLayerView: boolean }) {
+  const navigate = useNavigate()
   const tokens = useReaderStore((s) => s.tokens)
   const relationObjects = useReaderStore((s) => s.relation_objects)
   const relations = useReaderStore((s) => s.relations)
@@ -324,6 +326,18 @@ function TokenDetail({ token, isLayerView }: { token: Token; isLayerView: boolea
             ))}
           </select>
         </div>
+
+        {/* Open in graph view */}
+        {tokenRelationObject && (
+          <div>
+            <button
+              onClick={() => navigate(`/graph?focus=${tokenRelationObject.id}`)}
+              className="w-full px-3 py-2 text-xs border border-purple-300 text-purple-600 rounded hover:bg-purple-50"
+            >
+              在关系图谱中查看
+            </button>
+          </div>
+        )}
 
         {/* AI Explain button */}
         {tokenRelationObject && (
