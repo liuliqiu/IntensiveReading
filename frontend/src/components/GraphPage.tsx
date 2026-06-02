@@ -404,7 +404,7 @@ export default function GraphPage() {
     <div className="h-screen flex flex-col bg-gray-50">
       <div className="flex items-center gap-3 p-3 border-b bg-white shrink-0">
         <button
-          onClick={() => navigate('/')}
+          onClick={() => navigate(-1)}
           className="text-sm text-gray-500 hover:text-gray-700 px-2 py-1"
         >
           ← 返回
