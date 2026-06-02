@@ -3,7 +3,7 @@
 @plugin "@tailwindcss/typography";
 
 .s-default { }
-.s-keyword { @apply border-b-2 border-b-blue-400 bg-blue-50/50; }
+.s-keyword { @apply underline decoration-blue-400 decoration-2 underline-offset-[3px] text-blue-700; }
 .s-entity { }
 .s-unknown { }
 .s-number { }

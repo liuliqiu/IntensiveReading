@@ -31,7 +31,7 @@ export default function TokenSpan({ renderToken, canvas = 'document' }: Props) {
 
   return (
     <span
-      className={`relative inline cursor-pointer transition-colors px-0.5 rounded-sm
+      className={`relative inline cursor-pointer transition-colors px-px rounded-sm
         ${styleClass}
         ${isSelected ? 'ring-2 ring-blue-400 ring-inset' : ''}
         ${hoveredTokenId === token.id ? 'bg-gray-100' : ''}
